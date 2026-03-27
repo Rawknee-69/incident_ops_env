@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IncidentOpsEnv — Live Dashboard</title>
+  <title>IncidentOpsEnv - Dashboard & Workbench</title>
   <style>
     :root {
       --bg: #0f1115;
-      --card-bg: #181c22;
+      --card: #181c22;
       --border: #2a313b;
       --text: #e7ebf0;
       --muted: #8b949e;
@@ -16,256 +16,382 @@
       --amber: #d29922;
       --red: #f85149;
     }
+
     * { box-sizing: border-box; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       margin: 0;
-      padding: 1.5rem;
+      padding: 20px;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.4;
     }
+
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.5rem;
-      flex-wrap: wrap;
-      gap: 1rem;
+      gap: 10px;
+      margin-bottom: 14px;
     }
-    .header h1 { margin: 0; font-size: 1.5rem; }
-    .header-links a {
-      font-size: 11px;
+
+    .header h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .links a {
       color: var(--amber);
       text-decoration: none;
-      margin-right: 16px;
+      margin-left: 14px;
+      font-size: 12px;
     }
-    .header-links a:hover { text-decoration: underline; }
+
+    .links a:hover { text-decoration: underline; }
+
+    .section-title {
+      margin: 20px 0 10px;
+      font-size: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+
     .grid {
       display: grid;
+      gap: 12px;
+      margin-bottom: 12px;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
     }
+
     .card {
-      background: var(--card-bg);
+      background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 1rem;
+      padding: 12px;
+      min-height: 140px;
+      contain: content;
     }
+
     .card h3 {
-      margin: 0 0 0.75rem 0;
-      font-size: 0.85rem;
+      margin: 0 0 10px;
       color: var(--muted);
+      letter-spacing: 0.04em;
+      font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
     }
-    .stat-value {
-      font-size: 2rem;
-      font-weight: 600;
-      line-height: 1.2;
+
+    .stats-row {
+      display: flex;
+      gap: 18px;
+      align-items: flex-end;
+      flex-wrap: wrap;
     }
+
+    .stat-number {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
     .stat-label {
-      font-size: 0.75rem;
+      font-size: 11px;
       color: var(--muted);
+      margin-top: 3px;
     }
-    .bar-container {
+
+    .bar-row {
       display: flex;
       align-items: center;
-      margin: 0.5rem 0;
+      gap: 8px;
+      margin: 7px 0;
+      font-size: 12px;
     }
-    .bar-label {
-      width: 60px;
-      font-size: 0.8rem;
-      color: var(--muted);
-    }
+
     .bar-track {
       flex: 1;
-      height: 20px;
-      background: var(--bg);
+      height: 14px;
+      background: #0a0c10;
       border-radius: 4px;
       overflow: hidden;
-      margin: 0 0.5rem;
     }
+
     .bar-fill {
       height: 100%;
+      width: 0%;
       background: var(--blue);
-      transition: width 0.3s ease;
+      transition: width 0.2s ease;
     }
-    .bar-value {
-      width: 50px;
-      text-align: right;
-      font-size: 0.8rem;
-      font-family: monospace;
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
     }
+
     .histogram {
-      display: flex;
-      align-items: flex-end;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      align-items: end;
       gap: 4px;
-      height: 60px;
-      margin-top: 0.5rem;
+      height: 64px;
     }
-    .histogram-bar {
-      flex: 1;
+
+    .histogram .bar {
       background: var(--blue);
       min-height: 2px;
-      border-radius: 2px 2px 0 0;
+      border-radius: 3px 3px 0 0;
     }
+
     .histogram-labels {
-      display: flex;
+      margin-top: 6px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
       gap: 4px;
-      font-size: 0.65rem;
       color: var(--muted);
-      margin-top: 4px;
+      font-size: 10px;
+      text-align: center;
     }
-    .histogram-labels span { flex: 1; text-align: center; }
-    .feed {
-      max-height: 200px;
-      overflow-y: auto;
-      font-size: 0.8rem;
+
+    .scroll-box {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0b0d11;
+      padding: 8px;
+      height: 180px;
+      overflow: auto;
     }
+
     .feed-item {
       display: flex;
       justify-content: space-between;
-      padding: 0.4rem 0;
       border-bottom: 1px solid var(--border);
+      padding: 4px 0;
+      font-size: 12px;
     }
+
     .feed-item:last-child { border-bottom: none; }
-    .feed-task { color: var(--muted); }
-    .feed-score { font-family: monospace; }
-    .feed-score.good { color: var(--green); }
-    .feed-score.mid { color: var(--amber); }
-    .feed-score.low { color: var(--red); }
+
+    .good { color: var(--green); }
+    .mid { color: var(--amber); }
+    .low { color: var(--red); }
+
     .action-dist {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.5rem;
-      font-size: 0.75rem;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
     }
-    .action-dist-item {
+
+    .action-item {
       display: flex;
       justify-content: space-between;
-      padding: 0.3rem 0.5rem;
-      background: var(--bg);
-      border-radius: 4px;
-    }
-    .latency-table {
-      width: 100%;
-      font-size: 0.8rem;
-      border-collapse: collapse;
-    }
-    .latency-table th, .latency-table td {
-      text-align: left;
-      padding: 0.4rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .latency-table th { color: var(--muted); font-weight: normal; }
-    .tabs {
-      display: flex;
-      gap: 0;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 1rem;
-    }
-    .tab {
-      padding: 0.6rem 1rem;
-      background: transparent;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 0.85rem;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-    .tab:hover { color: var(--text); }
-    .tab.active {
-      color: var(--blue);
-      border-bottom-color: var(--blue);
-    }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    pre {
-      background: var(--bg);
-      padding: 1rem;
-      border-radius: 6px;
-      overflow-x: auto;
-      font-size: 0.8rem;
-      margin: 0.5rem 0;
-    }
-    code { font-family: 'SF Mono', Monaco, 'Courier New', monospace; }
-    .api-form { margin: 1rem 0; }
-    .api-form label {
-      display: block;
-      font-size: 0.75rem;
-      color: var(--muted);
-      margin-bottom: 0.3rem;
-    }
-    .api-form input, .api-form textarea, .api-form select {
-      width: 100%;
-      padding: 0.5rem;
-      background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 4px;
-      color: var(--text);
-      font-family: monospace;
-      font-size: 0.85rem;
-      margin-bottom: 0.75rem;
+      padding: 4px 6px;
+      font-size: 12px;
+      background: #0b0d11;
     }
-    .api-form textarea { min-height: 100px; resize: vertical; }
-    .btn {
-      padding: 0.5rem 1rem;
-      background: var(--blue);
-      color: var(--bg);
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.85rem;
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .table th, .table td {
+      text-align: left;
+      padding: 5px 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table th {
+      color: var(--muted);
       font-weight: 500;
     }
-    .btn:hover { opacity: 0.9; }
-    .response-box {
-      background: var(--bg);
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #11151b;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 7px 10px;
+    }
+
+    .tab.active {
+      color: var(--text);
+      border-color: var(--blue);
+      background: #0f1c28;
+    }
+
+    .workbench {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 580px;
+    }
+
+    .panel-stack {
+      position: relative;
+      height: 540px;
+      overflow: hidden;
+    }
+
+    .panel {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.1s ease;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .panel.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .form-col, .output-col {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .subcard {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      background: #11151b;
+    }
+
+    .subcard h4 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      background: #0a0d11;
+      color: var(--text);
       border: 1px solid var(--border);
       border-radius: 4px;
-      padding: 1rem;
-      margin-top: 1rem;
-      max-height: 300px;
+      padding: 7px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      margin-bottom: 8px;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+
+    button {
+      border: 1px solid transparent;
+      border-radius: 5px;
+      background: var(--blue);
+      color: #00131f;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #1a2029;
+      border-color: var(--border);
+      color: var(--text);
+    }
+
+    .status {
+      margin-top: 4px;
+      min-height: 16px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .json-box {
+      height: 250px;
       overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0a0d11;
+      padding: 8px;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     }
-    .response-box pre { background: transparent; padding: 0; margin: 0; }
-    .section-title {
-      font-size: 1.1rem;
-      margin: 2rem 0 1rem 0;
-      padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border);
+
+    .json-box.small {
+      height: 120px;
     }
-    @media (max-width: 768px) {
-      .grid { grid-template-columns: 1fr; }
-      .action-dist { grid-template-columns: repeat(2, 1fr); }
+
+    @media (max-width: 980px) {
+      .panel {
+        grid-template-columns: 1fr;
+      }
+      .panel-stack {
+        height: 760px;
+      }
     }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>IncidentOpsEnv</h1>
-    <div class="header-links">
-      <a href="/ui">Gradio UI &rarr;</a>
-      <a href="/docs">OpenAPI Docs &rarr;</a>
-      <a href="/metrics">Metrics JSON &rarr;</a>
+    <div class="links">
+      <a href="/ui">Gradio UI -></a>
+      <a href="/docs">OpenAPI Docs -></a>
+      <a href="/metrics">Metrics JSON -></a>
     </div>
   </div>
 
+  <h2 class="section-title">Live Metrics Dashboard</h2>
   <div class="grid">
     <div class="card">
       <h3>Server Status</h3>
-      <div class="stat-value" id="uptime">0h 0m 0s</div>
-      <div class="stat-label">Uptime</div>
-      <div style="margin-top:1rem;display:flex;gap:2rem;">
+      <div class="stats-row">
         <div>
-          <div class="stat-value" style="font-size:1.5rem" id="active-sessions">0</div>
+          <div class="stat-number mono" id="uptime">0h 0m 0s</div>
+          <div class="stat-label">Uptime</div>
+        </div>
+        <div>
+          <div class="stat-number" id="active-sessions">0</div>
           <div class="stat-label">Active Sessions</div>
         </div>
         <div>
-          <div class="stat-value" style="font-size:1.5rem" id="steps-per-sec">0.00</div>
+          <div class="stat-number mono" id="steps-per-sec">0.00</div>
           <div class="stat-label">Steps/sec</div>
         </div>
       </div>
@@ -273,50 +399,33 @@
 
     <div class="card">
       <h3>Episodes</h3>
-      <div style="display:flex;gap:2rem;">
+      <div class="stats-row">
         <div>
-          <div class="stat-value" id="episodes-started">0</div>
+          <div class="stat-number" id="episodes-started">0</div>
           <div class="stat-label">Started</div>
         </div>
         <div>
-          <div class="stat-value" id="episodes-completed">0</div>
+          <div class="stat-number" id="episodes-completed">0</div>
           <div class="stat-label">Completed</div>
         </div>
       </div>
-      <div style="margin-top:1rem;">
-        <div class="stat-label">Invalid Action Rate</div>
-        <div style="font-size:1.2rem;font-family:monospace" id="invalid-rate">0.0%</div>
+      <div style="margin-top:10px;" class="mono">
+        Invalid action rate: <span id="invalid-rate">0.0%</span>
       </div>
     </div>
 
     <div class="card">
       <h3>Average Scores by Task</h3>
-      <div class="bar-container">
-        <span class="bar-label">Task 1</span>
-        <div class="bar-track"><div class="bar-fill" id="bar-task1" style="width:0%"></div></div>
-        <span class="bar-value" id="score-task1">0.00</span>
-      </div>
-      <div class="bar-container">
-        <span class="bar-label">Task 2</span>
-        <div class="bar-track"><div class="bar-fill" id="bar-task2" style="width:0%"></div></div>
-        <span class="bar-value" id="score-task2">0.00</span>
-      </div>
-      <div class="bar-container">
-        <span class="bar-label">Task 3</span>
-        <div class="bar-track"><div class="bar-fill" id="bar-task3" style="width:0%"></div></div>
-        <span class="bar-value" id="score-task3">0.00</span>
-      </div>
+      <div class="bar-row"><span>Task 1</span><div class="bar-track"><div id="bar-task1" class="bar-fill"></div></div><span id="score-task1" class="mono">0.00</span></div>
+      <div class="bar-row"><span>Task 2</span><div class="bar-track"><div id="bar-task2" class="bar-fill"></div></div><span id="score-task2" class="mono">0.00</span></div>
+      <div class="bar-row"><span>Task 3</span><div class="bar-track"><div id="bar-task3" class="bar-fill"></div></div><span id="score-task3" class="mono">0.00</span></div>
     </div>
 
     <div class="card">
       <h3>Score Distribution</h3>
-      <div class="histogram" id="histogram"></div>
+      <div id="histogram" class="histogram"></div>
       <div class="histogram-labels">
-        <span>0-0.2</span>
-        <span>0.2-0.4</span>
-        <span>0.4-0.6</span>
-        <span>0.6-0.8</span>
-        <span>0.8-1.0</span>
+        <span>0-0.2</span><span>0.2-0.4</span><span>0.4-0.6</span><span>0.6-0.8</span><span>0.8-1.0</span>
       </div>
     </div>
   </div>
@@ -324,359 +433,552 @@
   <div class="grid">
     <div class="card">
       <h3>Recent Episodes</h3>
-      <div class="feed" id="episode-feed">
-        <div class="stat-label">No episodes yet</div>
-      </div>
+      <div class="scroll-box" id="episode-feed"></div>
     </div>
-
     <div class="card">
       <h3>Action Type Distribution</h3>
-      <div class="action-dist" id="action-dist">
-        <div class="stat-label">No actions yet</div>
-      </div>
+      <div class="scroll-box"><div id="action-dist" class="action-dist"></div></div>
     </div>
-
     <div class="card">
       <h3>Endpoint Latency (p50)</h3>
-      <table class="latency-table" id="latency-table">
-        <thead><tr><th>Endpoint</th><th>p50 ms</th><th>Count</th></tr></thead>
-        <tbody><tr><td colspan="3" class="stat-label">No data yet</td></tr></tbody>
-      </table>
+      <div class="scroll-box">
+        <table class="table" id="latency-table">
+          <thead><tr><th>Endpoint</th><th>p50 ms</th><th>Count</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <h2 class="section-title">API Explorer</h2>
-  <div class="tabs">
-    <button class="tab active" data-tab="reset">POST /reset</button>
-    <button class="tab" data-tab="step">POST /step</button>
-    <button class="tab" data-tab="grader">POST /grader</button>
-    <button class="tab" data-tab="curl">cURL Cheatsheet</button>
-  </div>
-
-  <div class="tab-content active" id="tab-reset">
-    <div class="api-form">
-      <label>task_id (1, 2, or 3)</label>
-      <input type="number" id="reset-task-id" value="1" min="1" max="3">
-      <label>seed (optional)</label>
-      <input type="number" id="reset-seed" placeholder="e.g. 42">
-      <button class="btn" onclick="doReset()">Send Reset</button>
+  <h2 class="section-title">Environment Workbench</h2>
+  <div class="workbench">
+    <div class="tabs" id="main-tabs">
+      <button class="tab active" data-panel="episode">Episode Runner</button>
+      <button class="tab" data-panel="tasks">Tasks + Grader</button>
+      <button class="tab" data-panel="metrics">Metrics</button>
+      <button class="tab" data-panel="baseline">Baseline</button>
+      <button class="tab" data-panel="scenario">Scenario Upload/Validation</button>
     </div>
-    <div class="response-box"><pre id="reset-response">Response will appear here...</pre></div>
-  </div>
 
-  <div class="tab-content" id="tab-step">
-    <div class="api-form">
-      <label>X-Session-ID</label>
-      <input type="text" id="step-session" placeholder="From /reset response">
-      <label>Action JSON</label>
-      <textarea id="step-action">{
+    <div class="panel-stack">
+      <section class="panel active" id="panel-episode">
+        <div class="form-col">
+          <div class="subcard">
+            <h4>Reset Episode</h4>
+            <label for="reset-task-id">Task ID</label>
+            <select id="reset-task-id"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+            <label for="reset-scenario-id">Scenario ID (optional)</label>
+            <input id="reset-scenario-id" placeholder="task1_payment_db_alert" />
+            <label for="reset-seed">Seed (optional)</label>
+            <input id="reset-seed" type="number" placeholder="42" />
+            <div class="btn-row">
+              <button id="btn-reset">Reset Episode</button>
+            </div>
+            <div class="status" id="reset-status">Idle</div>
+          </div>
+
+          <div class="subcard">
+            <h4>Step / State</h4>
+            <label for="session-id">Session ID</label>
+            <input id="session-id" placeholder="From reset response" />
+            <label for="step-action">Action JSON</label>
+            <textarea id="step-action">{
   "action_type": "classify_alert",
   "severity": "P2",
   "service_name": "payment-service",
   "pattern_type": "database_overload"
 }</textarea>
-      <button class="btn" onclick="doStep()">Send Step</button>
+            <div class="btn-row">
+              <button id="btn-step">Run Step</button>
+              <button class="secondary" id="btn-state">Fetch State</button>
+            </div>
+            <div class="status" id="step-status">Idle</div>
+          </div>
+        </div>
+        <div class="output-col">
+          <div class="subcard">
+            <h4>Observation</h4>
+            <pre class="json-box" id="episode-observation">{}</pre>
+          </div>
+          <div class="subcard">
+            <h4>Step Meta / Status</h4>
+            <pre class="json-box small" id="episode-meta">{}</pre>
+          </div>
+          <div class="subcard">
+            <h4>Current State</h4>
+            <pre class="json-box small" id="episode-state">{}</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-tasks">
+        <div class="form-col">
+          <div class="subcard">
+            <h4>Tasks</h4>
+            <div class="btn-row">
+              <button id="btn-load-tasks">Load /tasks</button>
+            </div>
+          </div>
+          <div class="subcard">
+            <h4>Grader</h4>
+            <label for="grader-session-id">Session ID</label>
+            <input id="grader-session-id" placeholder="From reset response" />
+            <div class="btn-row">
+              <button id="btn-grader">Run /grader</button>
+            </div>
+            <div class="status" id="grader-status">Idle</div>
+          </div>
+        </div>
+        <div class="output-col">
+          <div class="subcard">
+            <h4>Tasks</h4>
+            <pre class="json-box" id="tasks-output">{}</pre>
+          </div>
+          <div class="subcard">
+            <h4>Grader Result</h4>
+            <pre class="json-box small" id="grader-output">{}</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-metrics">
+        <div class="form-col">
+          <div class="subcard">
+            <h4>Metrics Controls</h4>
+            <div class="btn-row">
+              <button id="btn-metrics-refresh">Refresh /metrics</button>
+            </div>
+            <label style="margin-top:8px;">
+              <input id="metrics-auto" type="checkbox" checked style="width:auto;margin-right:6px;">Auto refresh every 2s
+            </label>
+          </div>
+          <div class="subcard">
+            <h4>Live Stream Endpoint</h4>
+            <pre class="json-box small" id="metrics-ws-info"></pre>
+          </div>
+        </div>
+        <div class="output-col">
+          <div class="subcard">
+            <h4>/metrics Snapshot</h4>
+            <pre class="json-box" id="metrics-output">{}</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-baseline">
+        <div class="form-col">
+          <div class="subcard">
+            <h4>Baseline Runner</h4>
+            <div class="btn-row">
+              <button id="btn-baseline">Run /baseline</button>
+            </div>
+            <div class="status" id="baseline-status">Idle</div>
+          </div>
+        </div>
+        <div class="output-col">
+          <div class="subcard">
+            <h4>Baseline Result</h4>
+            <pre class="json-box" id="baseline-output">{}</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-scenario">
+        <div class="form-col">
+          <div class="subcard">
+            <h4>Scenario File</h4>
+            <input id="scenario-file" type="file" accept=".json,application/json" />
+            <div class="btn-row">
+              <button id="btn-scenario-validate">Validate Scenario</button>
+              <button id="btn-scenario-upload">Upload Scenario</button>
+              <button class="secondary" id="btn-scenario-list">List Scenarios</button>
+            </div>
+            <div class="status" id="scenario-status">Idle</div>
+          </div>
+        </div>
+        <div class="output-col">
+          <div class="subcard">
+            <h4>Validation Result</h4>
+            <pre class="json-box small" id="scenario-validate-output">{}</pre>
+          </div>
+          <div class="subcard">
+            <h4>Upload/List Result</h4>
+            <pre class="json-box" id="scenario-upload-output">{}</pre>
+          </div>
+        </div>
+      </section>
     </div>
-    <div class="response-box"><pre id="step-response">Response will appear here...</pre></div>
-  </div>
-
-  <div class="tab-content" id="tab-grader">
-    <div class="api-form">
-      <label>X-Session-ID</label>
-      <input type="text" id="grader-session" placeholder="From /reset response">
-      <button class="btn" onclick="doGrader()">Get Grade</button>
-    </div>
-    <div class="response-box"><pre id="grader-response">Response will appear here...</pre></div>
-  </div>
-
-  <div class="tab-content" id="tab-curl">
-    <h4>Reset (Task 1, seed 42)</h4>
-    <pre><code>curl -X POST http://localhost:7860/reset \
-  -H "Content-Type: application/json" \
-  -d '{"task_id":1,"seed":42}'</code></pre>
-
-    <h4>Step (classify alert)</h4>
-    <pre><code>curl -X POST http://localhost:7860/step \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: YOUR_SESSION_ID" \
-  -d '{"action":{"action_type":"classify_alert","severity":"P2","service_name":"payment-service","pattern_type":"database_overload"}}'</code></pre>
-
-    <h4>Get State</h4>
-    <pre><code>curl http://localhost:7860/state -H "X-Session-ID: YOUR_SESSION_ID"</code></pre>
-
-    <h4>Grade Episode</h4>
-    <pre><code>curl -X POST http://localhost:7860/grader -H "X-Session-ID: YOUR_SESSION_ID"</code></pre>
-
-    <h4>Health Check</h4>
-    <pre><code>curl http://localhost:7860/health</code></pre>
-
-    <h4>Get Tasks</h4>
-    <pre><code>curl http://localhost:7860/tasks</code></pre>
-  </div>
-
-  <h2 class="section-title">Quick Start</h2>
-  <div class="tabs">
-    <button class="tab active" data-tab="qs-client">Python Client</button>
-    <button class="tab" data-tab="qs-openai">OpenAI</button>
-    <button class="tab" data-tab="qs-gemini">Gemini</button>
-  </div>
-
-  <div class="tab-content active" id="tab-qs-client">
-    <pre><code>import asyncio
-from incident_ops_env import IncidentAction, IncidentOpsEnv
-
-async def main():
-    async with IncidentOpsEnv(base_url="http://localhost:7860") as env:
-        result = await env.reset(task_id=1, seed=42)
-        print("Alerts:", len(result.observation.active_alerts))
-
-        action = IncidentAction(
-            action_type="classify_alert",
-            severity="P2",
-            service_name="payment-service",
-            pattern_type="database_overload",
-        )
-        result = await env.step(action)
-        print("Reward:", result.reward, "Done:", result.done)
-
-asyncio.run(main())</code></pre>
-  </div>
-
-  <div class="tab-content" id="tab-qs-openai">
-    <pre><code>import os
-from openai import OpenAI
-import httpx
-
-client = OpenAI()
-ENV_URL = "http://localhost:7860"
-
-# Reset environment
-reset = httpx.post(f"{ENV_URL}/reset", json={"task_id": 1, "seed": 42}).json()
-session_id = reset["session_id"]
-observation = reset["observation"]
-
-# Build prompt from observation
-prompt = f"""You are an SRE on-call. Classify this alert.
-Alerts: {observation['active_alerts']}
-Respond with JSON: {{"severity": "P1|P2|P3", "service_name": "...", "pattern_type": "..."}}"""
-
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": prompt}],
-    response_format={"type": "json_object"}
-)
-
-# Parse and send action
-import json
-action_data = json.loads(response.choices[0].message.content)
-action_data["action_type"] = "classify_alert"
-
-result = httpx.post(
-    f"{ENV_URL}/step",
-    json={"action": action_data},
-    headers={"X-Session-ID": session_id}
-).json()
-print("Reward:", result["reward"], "Done:", result["done"])</code></pre>
-  </div>
-
-  <div class="tab-content" id="tab-qs-gemini">
-    <pre><code>import os
-import google.generativeai as genai
-import httpx
-import json
-
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-2.0-flash")
-ENV_URL = "http://localhost:7860"
-
-# Reset environment
-reset = httpx.post(f"{ENV_URL}/reset", json={"task_id": 1, "seed": 42}).json()
-session_id = reset["session_id"]
-observation = reset["observation"]
-
-# Build prompt
-prompt = f"""You are an SRE on-call. Classify this alert.
-Alerts: {observation['active_alerts']}
-Respond with JSON only: {{"severity": "P1|P2|P3", "service_name": "...", "pattern_type": "..."}}"""
-
-response = model.generate_content(prompt)
-
-# Parse and send action
-action_data = json.loads(response.text)
-action_data["action_type"] = "classify_alert"
-
-result = httpx.post(
-    f"{ENV_URL}/step",
-    json={"action": action_data},
-    headers={"X-Session-ID": session_id}
-).json()
-print("Reward:", result["reward"], "Done:", result["done"])</code></pre>
   </div>
 
   <script>
-    let currentSessionId = null;
+    let pollTimer = null;
 
-    // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const tabGroup = tab.closest('.tabs');
-        const tabId = tab.dataset.tab;
-        tabGroup.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        let sibling = tabGroup.nextElementSibling;
-        while (sibling && sibling.classList.contains('tab-content')) {
-          sibling.classList.remove('active');
-          if (sibling.id === 'tab-' + tabId) {
-            sibling.classList.add('active');
-          }
-          sibling = sibling.nextElementSibling;
-        }
-      });
-    });
+    function pretty(value) {
+      if (typeof value === "string") return value;
+      return JSON.stringify(value, null, 2);
+    }
 
-    // API Explorer functions
-    async function doReset() {
-      const taskId = parseInt(document.getElementById('reset-task-id').value);
-      const seedInput = document.getElementById('reset-seed').value;
-      const body = { task_id: taskId };
-      if (seedInput) body.seed = parseInt(seedInput);
+    function setText(id, value) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = pretty(value);
+    }
 
+    function setStatus(id, msg) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = msg;
+    }
+
+    async function apiRequest(path, options = {}) {
+      const res = await fetch(path, options);
+      let payload = null;
       try {
-        const res = await fetch('/reset', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        const data = await res.json();
-        currentSessionId = data.session_id;
-        document.getElementById('step-session').value = currentSessionId;
-        document.getElementById('grader-session').value = currentSessionId;
-        document.getElementById('reset-response').textContent = JSON.stringify(data, null, 2);
-      } catch (e) {
-        document.getElementById('reset-response').textContent = 'Error: ' + e.message;
+        payload = await res.json();
+      } catch (_) {
+        payload = { detail: "Non-JSON response", status: res.status };
       }
+      if (!res.ok) {
+        throw { status: res.status, payload };
+      }
+      return payload;
     }
 
-    async function doStep() {
-      const sessionId = document.getElementById('step-session').value;
-      const actionText = document.getElementById('step-action').value;
-
-      try {
-        const action = JSON.parse(actionText);
-        const res = await fetch('/step', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Session-ID': sessionId
-          },
-          body: JSON.stringify({ action })
-        });
-        const data = await res.json();
-        document.getElementById('step-response').textContent = JSON.stringify(data, null, 2);
-      } catch (e) {
-        document.getElementById('step-response').textContent = 'Error: ' + e.message;
-      }
-    }
-
-    async function doGrader() {
-      const sessionId = document.getElementById('grader-session').value;
-
-      try {
-        const res = await fetch('/grader', {
-          method: 'POST',
-          headers: { 'X-Session-ID': sessionId }
-        });
-        const data = await res.json();
-        document.getElementById('grader-response').textContent = JSON.stringify(data, null, 2);
-      } catch (e) {
-        document.getElementById('grader-response').textContent = 'Error: ' + e.message;
-      }
-    }
-
-    // Metrics polling
-    async function fetchMetrics() {
-      try {
-        const res = await fetch('/metrics');
-        const data = await res.json();
-        updateDashboard(data);
-      } catch (e) {
-        console.error('Failed to fetch metrics:', e);
-      }
-    }
-
-    function updateDashboard(data) {
-      // Server status
-      document.getElementById('uptime').textContent = data.server.uptime_human || formatUptime(data.server.uptime_seconds);
-      document.getElementById('active-sessions').textContent = data.server.active_sessions;
-      document.getElementById('steps-per-sec').textContent = data.steps.per_second.toFixed(2);
-
-      // Episodes
-      document.getElementById('episodes-started').textContent = data.episodes.started;
-      document.getElementById('episodes-completed').textContent = data.episodes.completed;
-      document.getElementById('invalid-rate').textContent = (data.steps.invalid_action_rate * 100).toFixed(1) + '%';
-
-      // Task scores
-      const scores = data.scores.average_by_task;
-      updateBar('task1', scores.task_1);
-      updateBar('task2', scores.task_2);
-      updateBar('task3', scores.task_3);
-
-      // Histogram
-      const dist = data.scores.distribution;
-      const bins = [dist['0.0-0.2'], dist['0.2-0.4'], dist['0.4-0.6'], dist['0.6-0.8'], dist['0.8-1.0']];
-      const maxBin = Math.max(...bins, 1);
-      const histogramEl = document.getElementById('histogram');
-      histogramEl.innerHTML = bins.map(b =>
-        `<div class="histogram-bar" style="height:${(b / maxBin) * 100}%"></div>`
-      ).join('');
-
-      // Recent episodes feed
-      const feedEl = document.getElementById('episode-feed');
-      if (data.scores.recent && data.scores.recent.length > 0) {
-        feedEl.innerHTML = data.scores.recent.slice().reverse().map(ep => {
-          const scoreClass = ep.score >= 0.8 ? 'good' : (ep.score >= 0.5 ? 'mid' : 'low');
-          return `<div class="feed-item">
-            <span class="feed-task">Task ${ep.task_id}</span>
-            <span>${ep.steps_used} steps</span>
-            <span class="feed-score ${scoreClass}">${ep.score.toFixed(2)}</span>
-          </div>`;
-        }).join('');
-      }
-
-      // Action distribution
-      const actionDistEl = document.getElementById('action-dist');
-      const actions = data.steps.action_type_distribution;
-      if (Object.keys(actions).length > 0) {
-        actionDistEl.innerHTML = Object.entries(actions).map(([name, count]) =>
-          `<div class="action-dist-item"><span>${name}</span><span>${count}</span></div>`
-        ).join('');
-      }
-
-      // Latency table
-      const latencyBody = document.querySelector('#latency-table tbody');
-      const latency = data.api.latency_stats;
-      if (Object.keys(latency).length > 0) {
-        latencyBody.innerHTML = Object.entries(latency).map(([endpoint, stats]) =>
-          `<tr><td>${endpoint}</td><td>${stats.p50.toFixed(1)}</td><td>${stats.count}</td></tr>`
-        ).join('');
-      }
-    }
-
-    function updateBar(task, score) {
-      document.getElementById('bar-' + task).style.width = (score * 100) + '%';
-      document.getElementById('score-' + task).textContent = score.toFixed(2);
+    function clampScore(v) {
+      const n = Number(v ?? 0);
+      if (Number.isNaN(n)) return 0;
+      return Math.max(0, Math.min(1, n));
     }
 
     function formatUptime(seconds) {
-      const h = Math.floor(seconds / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      const s = Math.floor(seconds % 60);
+      const raw = Number(seconds ?? 0);
+      if (Number.isNaN(raw)) return "0h 0m 0s";
+      const h = Math.floor(raw / 3600);
+      const m = Math.floor((raw % 3600) / 60);
+      const s = Math.floor(raw % 60);
       return `${h}h ${m}m ${s}s`;
     }
 
-    // Start polling
-    fetchMetrics();
-    setInterval(fetchMetrics, 3000);
+    function updateBar(idSuffix, score) {
+      const n = clampScore(score);
+      document.getElementById(`bar-${idSuffix}`).style.width = `${n * 100}%`;
+      document.getElementById(`score-${idSuffix}`).textContent = n.toFixed(2);
+    }
+
+    function updateDashboard(data) {
+      document.getElementById("uptime").textContent = data.server?.uptime_human || formatUptime(data.server?.uptime_seconds);
+      document.getElementById("active-sessions").textContent = String(data.server?.active_sessions ?? 0);
+      document.getElementById("steps-per-sec").textContent = Number(data.steps?.per_second ?? 0).toFixed(2);
+      document.getElementById("episodes-started").textContent = String(data.episodes?.started ?? 0);
+      document.getElementById("episodes-completed").textContent = String(data.episodes?.completed ?? 0);
+      document.getElementById("invalid-rate").textContent = `${(Number(data.steps?.invalid_action_rate ?? 0) * 100).toFixed(1)}%`;
+
+      const avg = data.scores?.average_by_task || {};
+      updateBar("task1", avg.task_1);
+      updateBar("task2", avg.task_2);
+      updateBar("task3", avg.task_3);
+
+      const dist = data.scores?.distribution || {};
+      const bins = [dist["0.0-0.2"] || 0, dist["0.2-0.4"] || 0, dist["0.4-0.6"] || 0, dist["0.6-0.8"] || 0, dist["0.8-1.0"] || 0];
+      const maxBin = Math.max(1, ...bins);
+      const hist = document.getElementById("histogram");
+      hist.innerHTML = "";
+      bins.forEach((value) => {
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.style.height = `${(value / maxBin) * 100}%`;
+        hist.appendChild(bar);
+      });
+
+      const feed = document.getElementById("episode-feed");
+      feed.innerHTML = "";
+      const recent = Array.isArray(data.scores?.recent) ? [...data.scores.recent].reverse() : [];
+      if (!recent.length) {
+        feed.textContent = "No episodes yet";
+      } else {
+        recent.forEach((ep) => {
+          const row = document.createElement("div");
+          row.className = "feed-item";
+          const score = Number(ep.score ?? 0);
+          const cls = score >= 0.8 ? "good" : (score >= 0.5 ? "mid" : "low");
+          row.innerHTML = `<span>Task ${ep.task_id}</span><span>${ep.steps_used} steps</span><span class="${cls} mono">${score.toFixed(2)}</span>`;
+          feed.appendChild(row);
+        });
+      }
+
+      const actionDist = document.getElementById("action-dist");
+      actionDist.innerHTML = "";
+      const actionMap = data.steps?.action_type_distribution || {};
+      const actionEntries = Object.entries(actionMap);
+      if (!actionEntries.length) {
+        actionDist.textContent = "No actions yet";
+      } else {
+        actionEntries.forEach(([name, count]) => {
+          const item = document.createElement("div");
+          item.className = "action-item";
+          item.innerHTML = `<span>${name}</span><span class="mono">${count}</span>`;
+          actionDist.appendChild(item);
+        });
+      }
+
+      const tbody = document.querySelector("#latency-table tbody");
+      tbody.innerHTML = "";
+      const latencies = data.api?.latency_stats || {};
+      const latencyEntries = Object.entries(latencies);
+      if (!latencyEntries.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = "<td colspan='3'>No data yet</td>";
+        tbody.appendChild(tr);
+      } else {
+        latencyEntries.forEach(([endpoint, stats]) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${endpoint}</td><td class="mono">${Number(stats.p50 || 0).toFixed(1)}</td><td class="mono">${stats.count || 0}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    async function refreshMetrics() {
+      try {
+        const data = await apiRequest("/metrics");
+        updateDashboard(data);
+        setText("metrics-output", data);
+      } catch (err) {
+        setText("metrics-output", { error: err });
+      }
+    }
+
+    function getSessionId() {
+      return document.getElementById("session-id").value.trim();
+    }
+
+    function setSessionEverywhere(sessionId) {
+      document.getElementById("session-id").value = sessionId;
+      document.getElementById("grader-session-id").value = sessionId;
+    }
+
+    async function handleReset() {
+      setStatus("reset-status", "Resetting...");
+      const taskId = Number(document.getElementById("reset-task-id").value);
+      const scenarioId = document.getElementById("reset-scenario-id").value.trim();
+      const seedRaw = document.getElementById("reset-seed").value.trim();
+      const body = { task_id: taskId };
+      if (scenarioId) body.scenario_id = scenarioId;
+      if (seedRaw) body.seed = Number(seedRaw);
+      try {
+        const data = await apiRequest("/reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const sid = data.session_id || "";
+        if (sid) setSessionEverywhere(sid);
+        setText("episode-observation", data.observation || {});
+        setText("episode-meta", { session_id: sid, status: "reset_complete" });
+        setStatus("reset-status", "Reset complete.");
+      } catch (err) {
+        setText("episode-meta", { reset_error: err });
+        setStatus("reset-status", "Reset failed.");
+      }
+    }
+
+    async function handleStep() {
+      const sessionId = getSessionId();
+      if (!sessionId) {
+        setStatus("step-status", "Missing session_id.");
+        return;
+      }
+      setStatus("step-status", "Running step...");
+      let action = null;
+      try {
+        action = JSON.parse(document.getElementById("step-action").value);
+      } catch (e) {
+        setStatus("step-status", `Invalid action JSON: ${e.message}`);
+        return;
+      }
+      try {
+        const data = await apiRequest("/step", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-ID": sessionId,
+          },
+          body: JSON.stringify({ action }),
+        });
+        setText("episode-observation", data.observation || {});
+        setText("episode-meta", {
+          reward: data.reward,
+          reward_model: data.reward_model || {},
+          done: data.done,
+          info: data.info || {},
+        });
+        setStatus("step-status", "Step complete.");
+      } catch (err) {
+        setText("episode-meta", { step_error: err });
+        setStatus("step-status", "Step failed.");
+      }
+    }
+
+    async function handleState() {
+      const sessionId = getSessionId();
+      if (!sessionId) {
+        setStatus("step-status", "Missing session_id.");
+        return;
+      }
+      setStatus("step-status", "Fetching state...");
+      try {
+        const data = await apiRequest("/state", {
+          headers: { "X-Session-ID": sessionId },
+        });
+        setText("episode-state", data);
+        setStatus("step-status", "State loaded.");
+      } catch (err) {
+        setText("episode-state", { state_error: err });
+        setStatus("step-status", "State failed.");
+      }
+    }
+
+    async function handleTasks() {
+      try {
+        const data = await apiRequest("/tasks");
+        setText("tasks-output", data);
+      } catch (err) {
+        setText("tasks-output", { tasks_error: err });
+      }
+    }
+
+    async function handleGrader() {
+      const sessionId = document.getElementById("grader-session-id").value.trim();
+      if (!sessionId) {
+        setStatus("grader-status", "Missing session_id.");
+        return;
+      }
+      setStatus("grader-status", "Running grader...");
+      try {
+        const data = await apiRequest("/grader", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+        setText("grader-output", data);
+        setStatus("grader-status", "Grader complete.");
+      } catch (err) {
+        setText("grader-output", { grader_error: err });
+        setStatus("grader-status", "Grader failed.");
+      }
+    }
+
+    async function handleBaseline() {
+      setStatus("baseline-status", "Running baseline...");
+      try {
+        const data = await apiRequest("/baseline", { method: "POST" });
+        setText("baseline-output", data);
+        setStatus("baseline-status", "Baseline complete.");
+      } catch (err) {
+        setText("baseline-output", { baseline_error: err });
+        setStatus("baseline-status", "Baseline failed.");
+      }
+    }
+
+    async function readScenarioFile() {
+      const input = document.getElementById("scenario-file");
+      if (!input.files || !input.files.length) {
+        throw new Error("No file selected.");
+      }
+      const text = await input.files[0].text();
+      return JSON.parse(text);
+    }
+
+    async function handleScenarioValidate() {
+      setStatus("scenario-status", "Validating scenario...");
+      try {
+        const scenario = await readScenarioFile();
+        const data = await apiRequest("/scenarios/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenario }),
+        });
+        setText("scenario-validate-output", data);
+        setStatus("scenario-status", "Scenario valid.");
+      } catch (err) {
+        setText("scenario-validate-output", { validate_error: String(err.message || err) });
+        setStatus("scenario-status", "Validation failed.");
+      }
+    }
+
+    async function handleScenarioUpload() {
+      setStatus("scenario-status", "Uploading scenario...");
+      try {
+        const scenario = await readScenarioFile();
+        const data = await apiRequest("/scenarios/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenario }),
+        });
+        setText("scenario-upload-output", data);
+        setStatus("scenario-status", "Scenario uploaded.");
+      } catch (err) {
+        setText("scenario-upload-output", { upload_error: String(err.message || err) });
+        setStatus("scenario-status", "Upload failed.");
+      }
+    }
+
+    async function handleScenarioList() {
+      setStatus("scenario-status", "Listing scenarios...");
+      try {
+        const data = await apiRequest("/scenarios");
+        setText("scenario-upload-output", data);
+        setStatus("scenario-status", "Scenario list loaded.");
+      } catch (err) {
+        setText("scenario-upload-output", { list_error: err });
+        setStatus("scenario-status", "List failed.");
+      }
+    }
+
+    function setupTabs() {
+      const tabs = document.querySelectorAll("#main-tabs .tab");
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const panel = tab.dataset.panel;
+          tabs.forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+          document.getElementById(`panel-${panel}`).classList.add("active");
+        });
+      });
+    }
+
+    function setupMetricsAutoRefresh() {
+      const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/metrics`;
+      setText("metrics-ws-info", `Live metrics stream endpoint: ${wsUrl}`);
+      const checkbox = document.getElementById("metrics-auto");
+      const resetTimer = () => {
+        if (pollTimer) clearInterval(pollTimer);
+        if (checkbox.checked) {
+          pollTimer = setInterval(refreshMetrics, 2000);
+        }
+      };
+      checkbox.addEventListener("change", resetTimer);
+      resetTimer();
+    }
+
+    function bindEvents() {
+      document.getElementById("btn-reset").addEventListener("click", handleReset);
+      document.getElementById("btn-step").addEventListener("click", handleStep);
+      document.getElementById("btn-state").addEventListener("click", handleState);
+      document.getElementById("btn-load-tasks").addEventListener("click", handleTasks);
+      document.getElementById("btn-grader").addEventListener("click", handleGrader);
+      document.getElementById("btn-metrics-refresh").addEventListener("click", refreshMetrics);
+      document.getElementById("btn-baseline").addEventListener("click", handleBaseline);
+      document.getElementById("btn-scenario-validate").addEventListener("click", handleScenarioValidate);
+      document.getElementById("btn-scenario-upload").addEventListener("click", handleScenarioUpload);
+      document.getElementById("btn-scenario-list").addEventListener("click", handleScenarioList);
+    }
+
+    setupTabs();
+    bindEvents();
+    setupMetricsAutoRefresh();
+    refreshMetrics();
   </script>
 </body>
 </html>

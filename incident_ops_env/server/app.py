@@ -227,8 +227,14 @@ async def state(x_session_id: str | None = Header(default=None, alias="X-Session
 
 
 @app.post("/grader")
-async def grader(payload: GraderRequest) -> dict[str, Any]:
-    session_id = payload.session_id
+async def grader(
+    payload: GraderRequest | None = None,
+    x_session_id: str | None = Header(default=None, alias="X-Session-ID"),
+) -> dict[str, Any]:
+    # Backward-compatible support for clients that pass X-Session-ID header only.
+    session_id = (payload.session_id if payload is not None else None) or x_session_id
+    if not session_id:
+        raise HTTPException(status_code=422, detail="session_id is required in body or X-Session-ID header.")
     env = session_manager.get_session(session_id)
     if env is None:
         raise HTTPException(status_code=404, detail="Unknown session_id.")

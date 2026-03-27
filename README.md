@@ -132,6 +132,26 @@ from incident_ops_env import IncidentAction, IncidentOpsEnv
 python baseline.py
 ```
 
+For deterministic/no-key runs (useful for reproducibility checks):
+
+```bash
+BASELINE_PROVIDER=scripted .venv/bin/python baseline.py
+```
+
+### Phase Readiness Check
+
+Run the automated gate checks for Phase 1 plus readiness notes for Phases 2 and 3:
+
+```bash
+.venv/bin/python scripts/phase_readiness.py --runs 3
+```
+
+If Docker is unavailable in your shell session, skip that check:
+
+```bash
+.venv/bin/python scripts/phase_readiness.py --runs 3 --skip-docker
+```
+
 ## Baseline Scores
 TBD
 

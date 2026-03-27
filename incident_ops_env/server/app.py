@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 import gradio as gr
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 import baseline as baseline_runner
@@ -294,6 +294,12 @@ async def baseline() -> dict:
         return await baseline_runner.run_baseline()
     except EnvironmentError as exc:
         raise HTTPException(status_code=503, detail="No LLM API key configured.") from exc
+
+
+@app.get("/ui", include_in_schema=False)
+async def ui_redirect() -> RedirectResponse:
+    # Use a relative redirect to avoid proxy/host header mismatches on hosted platforms.
+    return RedirectResponse(url="/ui/")
 
 
 @app.get("/metrics")

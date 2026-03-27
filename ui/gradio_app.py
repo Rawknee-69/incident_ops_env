@@ -63,12 +63,25 @@ def run_reset(task_id: int, scenario_id: str, seed: int | None) -> tuple[str, st
         body["scenario_id"] = scenario_id.strip()
     if seed is not None:
         body["seed"] = int(seed)
-    payload = _request("POST", "/reset", body)
-    return (
-        payload["session_id"],
-        json.dumps(payload["observation"], indent=2),
-        json.dumps({"status": "reset_complete"}, indent=2),
-    )
+    logger.info("Reset requested task_id=%s scenario_id=%s seed=%s", task_id, scenario_id.strip(), seed)
+    try:
+        payload = _request("POST", "/reset", body)
+        return (
+            payload["session_id"],
+            json.dumps(payload["observation"], indent=2),
+            json.dumps({"status": "reset_complete"}, indent=2),
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        logger.warning("Reset HTTP status error status=%s detail=%s", exc.response.status_code, detail)
+        return "", "", f"Reset failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        logger.error("Reset request/network error: %s", repr(exc))
+        return "", "", f"Reset request/network error: {exc}"
 
 
 def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
@@ -126,18 +139,48 @@ def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
 def fetch_state(session_id: str) -> str:
     if not session_id.strip():
         return "Missing session_id."
-    payload = _request("GET", "/state", headers={"X-Session-ID": session_id.strip()})
-    return json.dumps(payload, indent=2)
+    try:
+        payload = _request("GET", "/state", headers={"X-Session-ID": session_id.strip()})
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        return f"State request failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        return f"State request/network error: {exc}"
 
 
 def fetch_tasks() -> str:
-    payload = _request("GET", "/tasks")
-    return json.dumps(payload, indent=2)
+    try:
+        payload = _request("GET", "/tasks")
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        return f"Tasks request failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        return f"Tasks request/network error: {exc}"
 
 
 def fetch_metrics() -> str:
-    payload = _request("GET", "/metrics")
-    return json.dumps(payload, indent=2)
+    try:
+        payload = _request("GET", "/metrics")
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        return f"Metrics request failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        return f"Metrics request/network error: {exc}"
 
 
 def run_baseline() -> str:
@@ -207,24 +250,54 @@ def run_grader(session_id: str) -> str:
 def upload_scenario(file_obj) -> str:
     if file_obj is None:
         return "No file selected."
-    with open(file_obj.name, encoding="utf-8") as handle:
-        content = json.load(handle)
-    payload = _request("POST", "/scenarios/upload", {"scenario": content})
-    return json.dumps(payload, indent=2)
+    try:
+        with open(file_obj.name, encoding="utf-8") as handle:
+            content = json.load(handle)
+        payload = _request("POST", "/scenarios/upload", {"scenario": content})
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        return f"Upload failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        return f"Upload request/network error: {exc}"
 
 
 def validate_scenario(file_obj) -> str:
     if file_obj is None:
         return "No file selected."
-    with open(file_obj.name, encoding="utf-8") as handle:
-        content = json.load(handle)
-    payload = _request("POST", "/scenarios/validate", {"scenario": content})
-    return json.dumps(payload, indent=2)
+    try:
+        with open(file_obj.name, encoding="utf-8") as handle:
+            content = json.load(handle)
+        payload = _request("POST", "/scenarios/validate", {"scenario": content})
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        return f"Validation failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        return f"Validation request/network error: {exc}"
 
 
 def list_scenarios() -> str:
-    payload = _request("GET", "/scenarios")
-    return json.dumps(payload, indent=2)
+    try:
+        payload = _request("GET", "/scenarios")
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        return f"Scenario listing failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        return f"Scenario listing request/network error: {exc}"
 
 
 def metrics_stream_info() -> str:

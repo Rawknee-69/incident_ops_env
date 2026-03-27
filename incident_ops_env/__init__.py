@@ -10,6 +10,11 @@ from .models import (
     RunbookStep,
 )
 
+try:
+    from .client import IncidentOpsEnv
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency shape
+    IncidentOpsEnv = None  # type: ignore[assignment]
+
 __all__ = [
     "ActionType",
     "Alert",
@@ -20,4 +25,5 @@ __all__ = [
     "LogEntry",
     "MetricSnapshot",
     "RunbookStep",
+    "IncidentOpsEnv",
 ]

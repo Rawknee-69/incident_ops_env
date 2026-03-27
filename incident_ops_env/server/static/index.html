@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IncidentOpsEnv</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; background: #0f1115; color: #e7ebf0; }
+    .card { background: #181c22; border: 1px solid #2a313b; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    a { color: #7dc4ff; }
+    pre { white-space: pre-wrap; background: #11151b; padding: .75rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>IncidentOpsEnv</h1>
+  <p>OpenEnv-compatible RL environment for SRE incident response simulation.</p>
+  <div class="card">
+    <h3>Quick Endpoints</h3>
+    <ul>
+      <li><a href="/health">GET /health</a></li>
+      <li><a href="/tasks">GET /tasks</a></li>
+      <li><a href="/metrics">GET /metrics</a></li>
+      <li><a href="/docs">OpenAPI Docs</a></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Smoke Test</h3>
+    <pre>curl -X POST http://localhost:7860/reset -H "Content-Type: application/json" -d '{"task_id":1,"seed":42}'</pre>
+  </div>
+</body>
+</html>

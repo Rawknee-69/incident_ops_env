@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+openai
+google-generativeai
+httpx
+python-multipart
+websockets
+prometheus-client

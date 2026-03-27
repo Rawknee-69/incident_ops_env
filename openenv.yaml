@@ -1,0 +1,27 @@
+name: incident_ops_env
+version: "1.0.0"
+description: >
+  Production incident response environment for RL agent training.
+author: "local-dev"
+license: MIT
+tasks:
+  - id: 1
+    name: alert_triage
+    difficulty: easy
+    max_steps: 5
+  - id: 2
+    name: root_cause_analysis
+    difficulty: medium
+    max_steps: 15
+  - id: 3
+    name: incident_playbook
+    difficulty: hard
+    max_steps: 25
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  health: GET /health
+  tasks: GET /tasks
+  grader: POST /grader
+  baseline: POST /baseline

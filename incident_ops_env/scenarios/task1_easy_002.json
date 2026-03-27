@@ -1,0 +1,11 @@
+{
+  "task_id": 1,
+  "scenario_id": "task1_easy_002",
+  "description": "Cache node split causes API timeout storm.",
+  "alerts": [
+    {"alert_id": "ALT-011", "title": "gateway timeout storm", "severity": "P1", "service": "api-gateway", "triggered_at": "2026-03-27T01:20:00Z", "metadata": {"resolved": false}},
+    {"alert_id": "ALT-012", "title": "stale auth warning", "severity": "P3", "service": "auth-service", "triggered_at": "2026-03-27T00:05:00Z", "metadata": {"resolved": true}},
+    {"alert_id": "ALT-013", "title": "batch window running", "severity": "P3", "service": "analytics", "triggered_at": "2026-03-27T01:00:00Z", "metadata": {"maintenance": true}}
+  ],
+  "ground_truth": {"severity": "P1", "service": "api-gateway", "pattern_type": "network_partition"}
+}

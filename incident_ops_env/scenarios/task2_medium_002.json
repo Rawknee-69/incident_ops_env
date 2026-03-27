@@ -1,0 +1,12 @@
+{
+  "task_id": 2,
+  "scenario_id": "task2_medium_002",
+  "description": "Auth-service failures after token cache corruption.",
+  "alerts": [
+    {"alert_id": "ALT-111", "title": "auth 401 error surge", "severity": "P1", "service": "auth-service", "triggered_at": "2026-03-27T05:11:00Z", "metadata": {"region": "us-east-1"}}
+  ],
+  "recent_deployments": [{"service": "auth-service", "deployed_at": "2026-03-27T05:00:00Z", "version": "v4.2.0"}],
+  "log_database": {"auth-service": [{"timestamp": "2026-03-27T05:11:10Z", "service": "auth-service", "level": "ERROR", "message": "token parse failed signature mismatch"}], "user-service": [{"timestamp": "2026-03-27T05:11:12Z", "service": "user-service", "level": "INFO", "message": "profile read ok"}]},
+  "metric_database": {"auth-service": {"error_rate": [{"service": "auth-service", "metric_name": "error_rate", "value": 17.0, "unit": "percent", "timestamp": "2026-03-27T05:11:00Z"}]}},
+  "ground_truth": {"root_cause_service": "auth-service", "pattern_type": "authentication_failure", "correct_mitigation_command": "kubectl rollout restart deployment/auth-service", "relevant_log_keywords": ["token", "signature"], "relevant_metrics": ["error_rate"]}
+}

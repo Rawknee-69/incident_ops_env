@@ -1,0 +1,22 @@
+{
+  "task_id": 3,
+  "scenario_id": "task3_hard_001",
+  "description": "Checkout and database incident requiring escalation for pool exhaustion diagnostics.",
+  "alerts": [
+    {"alert_id": "ALT-201", "title": "checkout major outage", "severity": "P1", "service": "checkout-service", "triggered_at": "2026-03-27T07:00:00Z", "metadata": {"linked": "db saturation"}},
+    {"alert_id": "ALT-202", "title": "db high connections", "severity": "P1", "service": "database", "triggered_at": "2026-03-27T07:00:05Z", "metadata": {"pool": "99%"}}
+  ],
+  "log_database": {"checkout-service": [{"timestamp": "2026-03-27T07:00:06Z", "service": "checkout-service", "level": "ERROR", "message": "connection refused postgres"}]},
+  "metric_database": {"checkout-service": {"error_rate": [{"service": "checkout-service", "metric_name": "error_rate", "value": 24.0, "unit": "percent", "timestamp": "2026-03-27T07:00:00Z"}]}},
+  "runbook": [
+    {"step_id": "step_1", "description": "Inspect failing events", "expected_outcome": "identify failing pods", "is_available": true, "should_fail": false, "correct_command": "kubectl get events -n production"},
+    {"step_id": "step_2", "description": "Restart checkout deployment", "expected_outcome": "errors decrease", "is_available": false, "should_fail": false, "correct_command": "kubectl rollout restart deployment/checkout-service"},
+    {"step_id": "step_3", "description": "Validate DB pool internals", "expected_outcome": "pool below threshold", "is_available": false, "should_fail": true, "correct_command": "kubectl exec -it db-0 -- psql -c 'SELECT 1'"},
+    {"step_id": "step_4", "description": "Finalize incident report", "expected_outcome": "postmortem drafted", "is_available": false, "should_fail": false, "correct_command": "write_postmortem"}
+  ],
+  "dynamic_state_updates": {
+    "step_1": {"new_logs": [{"timestamp": "2026-03-27T07:00:20Z", "service": "checkout-service", "level": "ERROR", "message": "retry queue growing"}], "metric_updates": {"checkout-service": {"error_rate": {"value": 21.1}}}},
+    "step_2": {"new_logs": [{"timestamp": "2026-03-27T07:00:40Z", "service": "checkout-service", "level": "WARN", "message": "db pool still saturated"}], "metric_updates": {"checkout-service": {"error_rate": {"value": 8.3}}}}
+  },
+  "ground_truth": {"correct_escalation_team": "database", "escalation_step_id": "step_3", "required_postmortem_keywords": ["database", "connection", "pool", "checkout-service"], "total_runbook_steps": 4, "steps_that_should_complete": ["step_1", "step_2", "step_4"], "step_that_should_escalate": "step_3"}
+}

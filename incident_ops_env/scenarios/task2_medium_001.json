@@ -1,0 +1,12 @@
+{
+  "task_id": 2,
+  "scenario_id": "task2_medium_001",
+  "description": "Checkout deployment regression caused NullPointerException spikes.",
+  "alerts": [
+    {"alert_id": "ALT-101", "title": "checkout 5xx spike", "severity": "P1", "service": "checkout-service", "triggered_at": "2026-03-27T04:01:00Z", "metadata": {"linked_deployment": "v1.9.0"}}
+  ],
+  "recent_deployments": [{"service": "checkout-service", "deployed_at": "2026-03-27T04:00:00Z", "version": "v1.9.0"}],
+  "log_database": {"checkout-service": [{"timestamp": "2026-03-27T04:01:05Z", "service": "checkout-service", "level": "ERROR", "message": "NullPointerException at CartController"}], "payment-service": [{"timestamp": "2026-03-27T04:01:05Z", "service": "payment-service", "level": "WARN", "message": "timeout waiting checkout"}]},
+  "metric_database": {"checkout-service": {"error_rate": [{"service": "checkout-service", "metric_name": "error_rate", "value": 23.4, "unit": "percent", "timestamp": "2026-03-27T04:01:00Z"}]}},
+  "ground_truth": {"root_cause_service": "checkout-service", "pattern_type": "deployment_regression", "correct_mitigation_command": "kubectl rollout undo deployment/checkout-service", "relevant_log_keywords": ["NullPointerException", "checkout"], "relevant_metrics": ["error_rate"]}
+}

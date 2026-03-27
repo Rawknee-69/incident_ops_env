@@ -1,0 +1,22 @@
+{
+  "task_id": 3,
+  "scenario_id": "task3_hard_003",
+  "description": "Search platform incident with failing DB diagnostics step requiring escalation.",
+  "alerts": [
+    {"alert_id": "ALT-221", "title": "search timeout flood", "severity": "P1", "service": "search-service", "triggered_at": "2026-03-27T09:00:00Z", "metadata": {"tenant": "global"}},
+    {"alert_id": "ALT-222", "title": "cache misses high", "severity": "P2", "service": "cache-service", "triggered_at": "2026-03-27T09:00:10Z", "metadata": {"miss_rate": "45%"}}
+  ],
+  "log_database": {"search-service": [{"timestamp": "2026-03-27T09:00:07Z", "service": "search-service", "level": "ERROR", "message": "query backend unavailable"}]},
+  "metric_database": {"search-service": {"error_rate": [{"service": "search-service", "metric_name": "error_rate", "value": 27.0, "unit": "percent", "timestamp": "2026-03-27T09:00:00Z"}]}},
+  "runbook": [
+    {"step_id": "step_1", "description": "Inspect search node health", "expected_outcome": "failing node identified", "is_available": true, "should_fail": false, "correct_command": "kubectl get pods -n search"},
+    {"step_id": "step_2", "description": "Restart unhealthy search shards", "expected_outcome": "shards recover", "is_available": false, "should_fail": false, "correct_command": "kubectl rollout restart statefulset/search-shards"},
+    {"step_id": "step_3", "description": "Run deep DB diagnostics", "expected_outcome": "pool safe", "is_available": false, "should_fail": true, "correct_command": "kubectl exec -it db-replica -- psql -c 'SELECT now()'"},
+    {"step_id": "step_4", "description": "Write postmortem", "expected_outcome": "postmortem filed", "is_available": false, "should_fail": false, "correct_command": "write_postmortem"}
+  ],
+  "dynamic_state_updates": {
+    "step_1": {"new_logs": [{"timestamp": "2026-03-27T09:00:20Z", "service": "search-service", "level": "WARN", "message": "hot shard stabilized"}], "metric_updates": {"search-service": {"error_rate": {"value": 15.8}}}},
+    "step_2": {"new_logs": [{"timestamp": "2026-03-27T09:00:35Z", "service": "search-service", "level": "INFO", "message": "all shards healthy"}], "metric_updates": {"search-service": {"error_rate": {"value": 2.4}}}}
+  },
+  "ground_truth": {"correct_escalation_team": "database", "escalation_step_id": "step_3", "required_postmortem_keywords": ["database", "connection", "pool", "checkout-service"], "total_runbook_steps": 4, "steps_that_should_complete": ["step_1", "step_2", "step_4"], "step_that_should_escalate": "step_3"}
+}

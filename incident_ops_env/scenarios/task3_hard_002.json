@@ -1,0 +1,22 @@
+{
+  "task_id": 3,
+  "scenario_id": "task3_hard_002",
+  "description": "Payments outage with upstream network degradation and controlled escalation.",
+  "alerts": [
+    {"alert_id": "ALT-211", "title": "payment retries exploding", "severity": "P1", "service": "payment-service", "triggered_at": "2026-03-27T08:00:00Z", "metadata": {"zone": "eu-west-1"}},
+    {"alert_id": "ALT-212", "title": "gateway latency high", "severity": "P2", "service": "api-gateway", "triggered_at": "2026-03-27T08:00:10Z", "metadata": {"p95_ms": 1800}}
+  ],
+  "log_database": {"payment-service": [{"timestamp": "2026-03-27T08:00:12Z", "service": "payment-service", "level": "ERROR", "message": "network timeout to card processor"}]},
+  "metric_database": {"payment-service": {"error_rate": [{"service": "payment-service", "metric_name": "error_rate", "value": 19.0, "unit": "percent", "timestamp": "2026-03-27T08:00:00Z"}]}},
+  "runbook": [
+    {"step_id": "step_1", "description": "Check edge network health", "expected_outcome": "packet loss identified", "is_available": true, "should_fail": false, "correct_command": "mtr --report card-processor.internal"},
+    {"step_id": "step_2", "description": "Switch payment traffic to backup route", "expected_outcome": "timeouts reduce", "is_available": false, "should_fail": false, "correct_command": "kubectl apply -f backup-route.yaml"},
+    {"step_id": "step_3", "description": "Patch firewall rule at provider edge", "expected_outcome": "stable routing", "is_available": false, "should_fail": true, "correct_command": "cloudctl firewall allow upstream-processor"},
+    {"step_id": "step_4", "description": "Draft final report", "expected_outcome": "report complete", "is_available": false, "should_fail": false, "correct_command": "write_postmortem"}
+  ],
+  "dynamic_state_updates": {
+    "step_1": {"new_logs": [{"timestamp": "2026-03-27T08:00:25Z", "service": "payment-service", "level": "WARN", "message": "backup path available"}], "metric_updates": {"payment-service": {"error_rate": {"value": 14.2}}}},
+    "step_2": {"new_logs": [{"timestamp": "2026-03-27T08:00:35Z", "service": "payment-service", "level": "INFO", "message": "route switched"}], "metric_updates": {"payment-service": {"error_rate": {"value": 3.5}}}}
+  },
+  "ground_truth": {"correct_escalation_team": "database", "escalation_step_id": "step_3", "required_postmortem_keywords": ["database", "connection", "pool", "checkout-service"], "total_runbook_steps": 4, "steps_that_should_complete": ["step_1", "step_2", "step_4"], "step_that_should_escalate": "step_3"}
+}

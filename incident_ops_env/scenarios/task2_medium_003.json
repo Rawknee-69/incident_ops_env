@@ -1,0 +1,12 @@
+{
+  "task_id": 2,
+  "scenario_id": "task2_medium_003",
+  "description": "Inventory API slowed by full disk on primary node.",
+  "alerts": [
+    {"alert_id": "ALT-121", "title": "inventory latency critical", "severity": "P2", "service": "inventory-service", "triggered_at": "2026-03-27T06:05:00Z", "metadata": {"disk": "95%"}}
+  ],
+  "recent_deployments": [{"service": "inventory-service", "deployed_at": "2026-03-26T22:00:00Z", "version": "v2.1.3"}],
+  "log_database": {"inventory-service": [{"timestamp": "2026-03-27T06:05:01Z", "service": "inventory-service", "level": "ERROR", "message": "No space left on device writing index"}]},
+  "metric_database": {"inventory-service": {"disk_percent": [{"service": "inventory-service", "metric_name": "disk_percent", "value": 97.5, "unit": "percent", "timestamp": "2026-03-27T06:05:00Z"}]}},
+  "ground_truth": {"root_cause_service": "inventory-service", "pattern_type": "disk_full", "correct_mitigation_command": "kubectl exec -n prod inventory-0 -- rm -rf /var/log/archive/*", "relevant_log_keywords": ["No space left"], "relevant_metrics": ["disk_percent"]}
+}

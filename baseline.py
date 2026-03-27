@@ -66,10 +66,16 @@ async def run_task(task_id: int, seed: int, provider: LLMProvider) -> dict:
 
 async def run_baseline() -> dict:
     provider = get_provider()
-    provider_name = type(provider).__name__.replace("Provider", "").lower()
+    provider_name = getattr(provider, "model", None) or getattr(provider, "model_name", None)
+    provider_name = provider_name or type(provider).__name__.replace("Provider", "").lower()
     scores = {}
     for task_id, seed in SEEDS.items():
-        scores[f"task_{task_id}"] = await run_task(task_id, seed, provider)
+        task_result = await run_task(task_id, seed, provider)
+        scores[f"task_{task_id}"] = {
+            "score": task_result["score"],
+            "seed": task_result["seed"],
+            "scenario_id": task_result["scenario_id"],
+        }
     average = round(sum(x["score"] for x in scores.values()) / len(scores), 2)
     return {"baseline_model": provider_name, "scores": scores, "average_score": average}
 

@@ -33,3 +33,34 @@ def test_task2_happy_path_grades():
         )
     )
     assert env.grade() == 1.0
+
+
+def test_task3_escalation_does_not_end_episode_and_retry_penalized():
+    env = IncidentOpsEnvironment()
+    env.reset(task_id=3, scenario_id="task3_hard_001")
+
+    failing_step_id = next(step["step_id"] for step in env.runbook_steps if step.get("should_fail"))
+    for step in env.runbook_steps:
+        if step["step_id"] == failing_step_id:
+            step["is_available"] = True
+
+    first_fail = env.step(
+        IncidentAction(
+            action_type=ActionType.EXECUTE_RUNBOOK_STEP,
+            runbook_step_id=failing_step_id,
+            command="wrong command",
+        )
+    )
+    assert first_fail.done is False
+
+    second_fail = env.step(
+        IncidentAction(
+            action_type=ActionType.EXECUTE_RUNBOOK_STEP,
+            runbook_step_id=failing_step_id,
+            command="still wrong",
+        )
+    )
+    assert second_fail.info["reward_breakdown"].get("RETRY_FAILED_STEP", 0) < 0
+
+    escalation = env.step(IncidentAction(action_type=ActionType.ESCALATE, escalation_team="database"))
+    assert escalation.done is False

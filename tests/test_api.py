@@ -27,3 +27,13 @@ def test_reset_step_state():
     state = client.get("/state", headers={"X-Session-ID": session_id})
     assert state.status_code == 200
     assert state.json()["episode_id"]
+
+
+def test_baseline_returns_503_without_provider_key(monkeypatch):
+    import baseline
+
+    monkeypatch.setattr(baseline, "run_baseline_sync", lambda: (_ for _ in ()).throw(EnvironmentError("missing")))
+    client = TestClient(app)
+    response = client.post("/baseline")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "No LLM API key configured."

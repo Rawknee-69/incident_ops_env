@@ -4,17 +4,48 @@ import json
 import time
 import uuid
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field
 
-from incident_ops_env.models import IncidentAction
+from incident_ops_env.models import IncidentAction, IncidentObservation
 from incident_ops_env.server.metrics import metrics
 from incident_ops_env.server.session_manager import SessionManager
 
 
 app = FastAPI(title="IncidentOpsEnv", version="1.0.0")
 session_manager = SessionManager()
+PATTERN_TYPE_VALUES = [
+    "database_overload",
+    "memory_leak",
+    "network_partition",
+    "deployment_regression",
+    "traffic_spike",
+    "disk_full",
+    "authentication_failure",
+    "unknown",
+]
+
+
+class ResetRequest(BaseModel):
+    task_id: Literal[1, 2, 3]
+    scenario_id: str | None = None
+    seed: int | None = None
+
+
+class ResetResponse(BaseModel):
+    observation: IncidentObservation
+    session_id: str
+
+
+class StepRequest(BaseModel):
+    action: IncidentAction
+
+
+class GraderRequest(BaseModel):
+    session_id: str = Field(min_length=1)
 
 
 @app.middleware("http")
@@ -57,13 +88,15 @@ async def tasks() -> dict:
                 "action_schema": {
                     "required_fields": ["action_type", "severity", "service_name", "pattern_type"],
                     "action_type_values": ["classify_alert", "no_op"],
+                    "severity_values": ["P1", "P2", "P3"],
+                    "pattern_type_values": PATTERN_TYPE_VALUES,
                 },
             },
             {
                 "task_id": 2,
                 "name": "Root Cause Analysis",
                 "difficulty": "medium",
-                "description": "Query logs and metrics, identify root cause service, propose fix.",
+                "description": "Query logs and metrics, identify root cause service, propose fix command.",
                 "max_steps": 15,
                 "action_schema": {
                     "required_fields_by_action": {
@@ -93,26 +126,21 @@ async def tasks() -> dict:
 
 
 @app.post("/reset")
-async def reset(payload: dict, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> dict:
-    task_id = payload.get("task_id")
-    if task_id not in (1, 2, 3):
-        raise HTTPException(status_code=422, detail="task_id must be one of [1, 2, 3]")
-    scenario_id = payload.get("scenario_id")
-    seed = payload.get("seed")
+async def reset(payload: ResetRequest, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> ResetResponse:
     session_id, env = session_manager.create_or_get_session(x_session_id)
-    obs = env.reset(task_id=task_id, scenario_id=scenario_id, seed=seed)
-    metrics.record_episode_start(session_id, task_id)
-    return {"observation": obs.model_dump(), "session_id": session_id}
+    obs = env.reset(task_id=payload.task_id, scenario_id=payload.scenario_id, seed=payload.seed)
+    metrics.record_episode_start(session_id, payload.task_id)
+    return ResetResponse(observation=obs, session_id=session_id)
 
 
 @app.post("/step")
-async def step(payload: dict, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> dict:
+async def step(payload: StepRequest, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> dict[str, Any]:
     if not x_session_id:
         raise HTTPException(status_code=422, detail="X-Session-ID header is required.")
     env = session_manager.get_session(x_session_id)
     if env is None:
         raise HTTPException(status_code=404, detail="Unknown session_id. Call /reset first.")
-    action = IncidentAction(**payload["action"])
+    action = payload.action
     result = env.step(action)
     metrics.record_step(x_session_id, action.action_type.value, result.reward, result.observation.last_action_was_valid)
     if result.done:
@@ -136,10 +164,8 @@ async def state(x_session_id: str | None = Header(default=None, alias="X-Session
 
 
 @app.post("/grader")
-async def grader(payload: dict) -> dict:
-    session_id = payload.get("session_id")
-    if not session_id:
-        raise HTTPException(status_code=422, detail="session_id is required.")
+async def grader(payload: GraderRequest) -> dict[str, Any]:
+    session_id = payload.session_id
     env = session_manager.get_session(session_id)
     if env is None:
         raise HTTPException(status_code=404, detail="Unknown session_id.")
@@ -159,7 +185,10 @@ async def grader(payload: dict) -> dict:
 async def baseline() -> dict:
     from baseline import run_baseline_sync
 
-    return run_baseline_sync()
+    try:
+        return run_baseline_sync()
+    except EnvironmentError as exc:
+        raise HTTPException(status_code=503, detail="No LLM API key configured.") from exc
 
 
 @app.get("/metrics")

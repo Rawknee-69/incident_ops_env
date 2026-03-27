@@ -41,6 +41,7 @@ class IncidentOpsEnvironment:
         self.last_action_result: str | None = None
         self.last_action_was_valid = True
         self.failed_step_ids: set[str] = set()
+        self.escalated_step_ids: set[str] = set()
         self.irrelevant_log_queries = 0
         self.action_history: list[dict] = []
         self.step_rewards: list[float] = []
@@ -70,6 +71,7 @@ class IncidentOpsEnvironment:
         self.last_action_result = None
         self.last_action_was_valid = True
         self.failed_step_ids = set()
+        self.escalated_step_ids = set()
         self.irrelevant_log_queries = 0
         self.action_history = []
         self.step_rewards = []
@@ -232,9 +234,9 @@ class IncidentOpsEnvironment:
                 self.last_action_result = "Runbook step not available yet."
                 return result
             if target.get("should_fail"):
-                self.failed_step_ids.add(target["step_id"])
-                if target["step_id"] in self.failed_step_ids and target.get("is_completed"):
+                if target["step_id"] in self.failed_step_ids:
                     result["retried_failed_step"] = True
+                self.failed_step_ids.add(target["step_id"])
                 self.last_action_result = "Step failed: simulated failure. Consider escalating to the database team."
                 return result
             if action.command == target.get("correct_command"):
@@ -248,8 +250,18 @@ class IncidentOpsEnvironment:
             return result
 
         if action.action_type == ActionType.ESCALATE:
-            result["task_complete"] = True
-            self.last_action_result = f"Escalated to {action.escalation_team}."
+            expected_step_id = self.current_scenario.get("ground_truth", {}).get("step_that_should_escalate")
+            expected_team = self.current_scenario.get("ground_truth", {}).get("correct_escalation_team")
+            if expected_step_id and expected_step_id in self.failed_step_ids and action.escalation_team == expected_team:
+                self.escalated_step_ids.add(expected_step_id)
+                self._unlock_next_step(expected_step_id)
+                self.last_action_result = (
+                    f"Escalated {expected_step_id} to {action.escalation_team}. "
+                    "Proceed to the next runbook step."
+                )
+            else:
+                result["escalated_instead_of_fix"] = True
+                self.last_action_result = f"Escalation to {action.escalation_team} did not match the runbook context."
             return result
 
         if action.action_type == ActionType.WRITE_POSTMORTEM:
@@ -335,6 +347,8 @@ class IncidentOpsEnvironment:
             return False
         for step in self.runbook_steps:
             if step.get("should_fail"):
+                if step.get("step_id") not in self.escalated_step_ids:
+                    return False
                 continue
             if not step.get("is_completed"):
                 return False

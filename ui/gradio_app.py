@@ -87,8 +87,21 @@ def run_baseline() -> str:
 def run_grader(session_id: str) -> str:
     if not session_id.strip():
         return "Missing session_id."
-    payload = _request("POST", "/grader", {"session_id": session_id.strip()})
-    return json.dumps(payload, indent=2)
+    try:
+        payload = _request("POST", "/grader", {"session_id": session_id.strip()})
+        return json.dumps(payload, indent=2)
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        if exc.response.status_code == 409:
+            return (
+                "Episode not complete yet. Run one or more `/step` actions until `done=true`, "
+                f"then retry grading.\nServer detail: {detail}"
+            )
+        return f"Request failed ({exc.response.status_code}): {detail}"
 
 
 def upload_scenario(file_obj) -> str:

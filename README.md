@@ -115,8 +115,24 @@ uv run uvicorn incident_ops_env.server.app:app --port 7860
 
 ### Docker
 ```bash
-docker build -f incident_ops_env/server/Dockerfile -t incident-ops-env .
+docker build -f Dockerfile -t incident-ops-env .
 docker run -p 7860:7860 incident-ops-env
+```
+
+### Gradio Observability UI
+
+The app exposes a Gradio UI at `/ui` with:
+
+- Episode runner (reset/step/state)
+- Task and grader explorer
+- Baseline trigger/inspection
+- Live metrics monitor (`/metrics` + `/ws/metrics`)
+- Scenario upload and validation tools
+
+When running locally:
+
+```bash
+open http://localhost:7860/ui
 ```
 
 ### Client Usage
@@ -150,6 +166,20 @@ If Docker is unavailable in your shell session, skip that check:
 
 ```bash
 .venv/bin/python scripts/phase_readiness.py --runs 3 --skip-docker
+```
+
+For deployed HF Space smoke checks:
+
+```bash
+.venv/bin/python scripts/phase_readiness.py --runs 3 --space-url "https://<your-space>.hf.space"
+```
+
+### HF Smoke Test Commands
+
+```bash
+curl -sS https://<your-space>.hf.space/health
+curl -sS https://<your-space>.hf.space/tasks
+curl -sS -X POST https://<your-space>.hf.space/reset -H "content-type: application/json" -d '{"task_id":1,"seed":42}'
 ```
 
 ## Baseline Scores

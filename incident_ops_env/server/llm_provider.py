@@ -29,7 +29,7 @@ class OpenAIProvider(LLMProvider):
 
 
 class GeminiProvider(LLMProvider):
-    def __init__(self, model: str = "gemini-2.0-flash"):
+    def __init__(self, model: str = "gemini-2.5-flash"):
         import google.generativeai as genai
 
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])

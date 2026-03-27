@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import defaultdict, deque
+from asyncio import Queue
 
 
 class IncidentMetrics:
@@ -114,4 +115,29 @@ class IncidentMetrics:
             }
 
 
+class LiveMetricsHub:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subscribers: set[Queue] = set()
+
+    def subscribe(self) -> Queue:
+        queue: Queue = Queue(maxsize=200)
+        with self._lock:
+            self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: Queue) -> None:
+        with self._lock:
+            self._subscribers.discard(queue)
+
+    async def publish(self, event: dict) -> None:
+        with self._lock:
+            subscribers = list(self._subscribers)
+        for queue in subscribers:
+            if queue.full():
+                _ = queue.get_nowait()
+            queue.put_nowait(event)
+
+
 metrics = IncidentMetrics()
+metrics_hub = LiveMetricsHub()

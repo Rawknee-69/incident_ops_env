@@ -1,19 +1,27 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Literal
 
+import gradio as gr
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 import baseline as baseline_runner
 from incident_ops_env.models import IncidentAction, IncidentObservation
-from incident_ops_env.server.metrics import metrics
+from incident_ops_env.server.metrics import metrics, metrics_hub
+from incident_ops_env.server.scenario_loader import (
+    list_scenarios_for_task,
+    registry,
+    validate_scenario_data,
+)
 from incident_ops_env.server.session_manager import SessionManager
+from ui import build_gradio_app
 
 
 app = FastAPI(title="IncidentOpsEnv", version="1.0.0")
@@ -49,11 +57,25 @@ class GraderRequest(BaseModel):
     session_id: str = Field(min_length=1)
 
 
+class ScenarioRequest(BaseModel):
+    scenario: dict[str, Any]
+
+
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
-    metrics.record_request(request.url.path, (time.time() - start) * 1000)
+    latency_ms = (time.time() - start) * 1000
+    metrics.record_request(request.url.path, latency_ms)
+    await metrics_hub.publish(
+        {
+            "type": "request",
+            "path": request.url.path,
+            "method": request.method,
+            "latency_ms": round(latency_ms, 2),
+            "timestamp": time.time(),
+        }
+    )
     return response
 
 
@@ -129,8 +151,22 @@ async def tasks() -> dict:
 @app.post("/reset")
 async def reset(payload: ResetRequest, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> ResetResponse:
     session_id, env = session_manager.create_or_get_session(x_session_id)
-    obs = env.reset(task_id=payload.task_id, scenario_id=payload.scenario_id, seed=payload.seed)
+    try:
+        obs = env.reset(task_id=payload.task_id, scenario_id=payload.scenario_id, seed=payload.seed)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     metrics.record_episode_start(session_id, payload.task_id)
+    await metrics_hub.publish(
+        {
+            "type": "episode_start",
+            "session_id": session_id,
+            "task_id": payload.task_id,
+            "scenario_id": env.scenario_id,
+            "timestamp": time.time(),
+        }
+    )
     return ResetResponse(observation=obs, session_id=session_id)
 
 
@@ -142,10 +178,35 @@ async def step(payload: StepRequest, x_session_id: str | None = Header(default=N
     if env is None:
         raise HTTPException(status_code=404, detail="Unknown session_id. Call /reset first.")
     action = payload.action
-    result = env.step(action)
+    try:
+        result = env.step(action)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     metrics.record_step(x_session_id, action.action_type.value, result.reward, result.observation.last_action_was_valid)
+    await metrics_hub.publish(
+        {
+            "type": "step",
+            "session_id": x_session_id,
+            "action_type": action.action_type.value,
+            "reward": result.reward,
+            "done": result.done,
+            "valid": result.observation.last_action_was_valid,
+            "timestamp": time.time(),
+        }
+    )
     if result.done:
-        metrics.record_episode_end(x_session_id, env.grade(), env.step_number)
+        episode_score = env.grade()
+        metrics.record_episode_end(x_session_id, episode_score, env.step_number)
+        await metrics_hub.publish(
+            {
+                "type": "episode_end",
+                "session_id": x_session_id,
+                "task_id": env.task_id,
+                "score": episode_score,
+                "steps": env.step_number,
+                "timestamp": time.time(),
+            }
+        )
     return {
         "observation": result.observation.model_dump(),
         "reward": result.reward,
@@ -173,20 +234,64 @@ async def grader(payload: GraderRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Unknown session_id.")
     if not env.is_done:
         raise HTTPException(status_code=409, detail="Episode not complete. Finish episode before grading.")
-    return {
-        "score": env.grade(),
+    score = env.grade()
+    grader_payload = {
+        "score": score,
         "task_id": env.task_id,
         "episode_id": env.episode_id,
         "scenario_id": env.scenario_id,
         "breakdown": env.reward_breakdown,
         "grader_version": "1.0.0",
     }
+    await metrics_hub.publish(
+        {
+            "type": "grader",
+            "session_id": session_id,
+            "task_id": env.task_id,
+            "score": score,
+            "timestamp": time.time(),
+        }
+    )
+    return grader_payload
+
+
+@app.get("/scenarios")
+async def scenarios() -> dict[str, Any]:
+    built_in: dict[str, list[str]] = {}
+    for task_id in (1, 2, 3):
+        built_in[f"task_{task_id}"] = [item["scenario_id"] for item in list_scenarios_for_task(task_id, include_uploaded=False)]
+    return {
+        "built_in": built_in,
+        "uploaded": registry.list_uploaded_ids(),
+    }
+
+
+@app.post("/scenarios/validate")
+async def validate_scenario(payload: ScenarioRequest) -> dict[str, Any]:
+    scenario = validate_scenario_data(payload.scenario)
+    return {
+        "valid": True,
+        "scenario_id": scenario["scenario_id"],
+        "task_id": scenario["task_id"],
+    }
+
+
+@app.post("/scenarios/upload")
+async def upload_scenario(payload: ScenarioRequest) -> dict[str, Any]:
+    scenario = validate_scenario_data(payload.scenario)
+    path = registry.save_uploaded_scenario(scenario)
+    return {
+        "uploaded": True,
+        "scenario_id": scenario["scenario_id"],
+        "task_id": scenario["task_id"],
+        "path": str(path),
+    }
 
 
 @app.post("/baseline")
 async def baseline() -> dict:
     try:
-        return baseline_runner.run_baseline_sync()
+        return await baseline_runner.run_baseline()
     except EnvironmentError as exc:
         raise HTTPException(status_code=503, detail="No LLM API key configured.") from exc
 
@@ -242,3 +347,26 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text(json.dumps({"type": "state_result", **env.state().model_dump()}))
     except WebSocketDisconnect:
         return
+
+
+@app.websocket("/ws/metrics")
+async def metrics_websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    queue = metrics_hub.subscribe()
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                await websocket.send_text(json.dumps(event))
+            except asyncio.TimeoutError:
+                await websocket.send_text(
+                    json.dumps({"type": "snapshot", "timestamp": time.time(), "payload": metrics.snapshot()})
+                )
+    except WebSocketDisconnect:
+        return
+    finally:
+        metrics_hub.unsubscribe(queue)
+
+
+gradio_demo = build_gradio_app()
+app = gr.mount_gradio_app(app, gradio_demo, path="/ui")

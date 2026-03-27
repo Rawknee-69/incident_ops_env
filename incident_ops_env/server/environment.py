@@ -54,7 +54,11 @@ class IncidentOpsEnvironment:
         if seed is not None:
             random.seed(seed)
 
-        scenario = load_scenario_by_id(scenario_id) if scenario_id else random.choice(list_scenarios_for_task(task_id))
+        scenario = (
+            load_scenario_by_id(scenario_id, expected_task_id=task_id)
+            if scenario_id
+            else random.choice(list_scenarios_for_task(task_id))
+        )
         self.current_scenario = deepcopy(scenario)
         self.episode_id = str(uuid.uuid4())
         self.task_id = task_id

@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
 ENV PATH="/app/env/.venv/bin:$PATH"
-ENV WORKERS=4
+ENV WORKERS=1
 ENV MAX_CONCURRENT_ENVS=100
 
 EXPOSE 7860

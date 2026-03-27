@@ -1,21 +1,58 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from typing import Any
 
 import gradio as gr
 import httpx
 
 
+LOG_LEVEL = os.environ.get("UI_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("incident_ops_ui")
+
+
 def _backend_base_url() -> str:
     return os.environ.get("UI_BACKEND_URL", "http://127.0.0.1:7860")
 
 
-def _request(method: str, path: str, payload: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict:
+def _request(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout_seconds: float = 60.0,
+) -> dict:
     url = _backend_base_url().rstrip("/") + path
-    with httpx.Client(timeout=60.0) as client:
-        response = client.request(method=method, url=url, json=payload, headers=headers)
+    started_at = time.perf_counter()
+    logger.debug("HTTP request start method=%s path=%s timeout=%s", method, path, timeout_seconds)
+    with httpx.Client(timeout=timeout_seconds) as client:
+        try:
+            response = client.request(method=method, url=url, json=payload, headers=headers)
+        except httpx.RequestError as exc:
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            logger.error(
+                "HTTP request error method=%s path=%s elapsed_ms=%s error=%s",
+                method,
+                path,
+                elapsed_ms,
+                repr(exc),
+            )
+            raise
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.info(
+            "HTTP response method=%s path=%s status=%s elapsed_ms=%s",
+            method,
+            path,
+            response.status_code,
+            elapsed_ms,
+        )
         response.raise_for_status()
         return response.json()
 
@@ -41,25 +78,49 @@ def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
         action_payload = json.loads(action_json)
     except json.JSONDecodeError as exc:
         return "", "", f"Invalid action JSON: {exc}"
-    payload = _request(
-        "POST",
-        "/step",
-        {"action": action_payload},
-        headers={"X-Session-ID": session_id.strip()},
-    )
-    return (
-        json.dumps(payload["observation"], indent=2),
-        json.dumps(
-            {
-                "reward": payload["reward"],
-                "reward_model": payload.get("reward_model", {}),
-                "done": payload["done"],
-                "info": payload.get("info", {}),
-            },
-            indent=2,
-        ),
-        "step_complete",
-    )
+    logger.info("Step requested session_id=%s", session_id.strip())
+    try:
+        payload = _request(
+            "POST",
+            "/step",
+            {"action": action_payload},
+            headers={"X-Session-ID": session_id.strip()},
+        )
+        return (
+            json.dumps(payload["observation"], indent=2),
+            json.dumps(
+                {
+                    "reward": payload["reward"],
+                    "reward_model": payload.get("reward_model", {}),
+                    "done": payload["done"],
+                    "info": payload.get("info", {}),
+                },
+                indent=2,
+            ),
+            "step_complete",
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        logger.warning(
+            "Step HTTP status error session_id=%s status=%s detail=%s",
+            session_id.strip(),
+            exc.response.status_code,
+            detail,
+        )
+        status = f"Step failed ({exc.response.status_code}): {detail}"
+        if exc.response.status_code == 422:
+            status = (
+                "Step validation failed (422). Check `Action JSON` matches task schema "
+                f"and required fields.\nServer detail: {detail}"
+            )
+        return "", "", status
+    except httpx.RequestError as exc:
+        logger.error("Step request error session_id=%s error=%s", session_id.strip(), repr(exc))
+        return "", "", f"Step request/network error: {exc}"
 
 
 def fetch_state(session_id: str) -> str:
@@ -80,17 +141,56 @@ def fetch_metrics() -> str:
 
 
 def run_baseline() -> str:
-    payload = _request("POST", "/baseline")
-    return json.dumps(payload, indent=2)
+    logger.info("Baseline run requested from Gradio UI")
+    try:
+        # Baseline can take longer because it runs all tasks and calls an LLM provider.
+        payload = _request("POST", "/baseline", timeout_seconds=240.0)
+        logger.info("Baseline run completed successfully")
+        return json.dumps(payload, indent=2)
+    except httpx.ReadTimeout as exc:
+        logger.warning("Baseline read timeout: %s", repr(exc))
+        return (
+            "Baseline request timed out in the UI (240s). "
+            "The backend may still be processing, or the provider is too slow."
+        )
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Baseline HTTP status error status=%s detail=%s",
+            exc.response.status_code,
+            exc.response.text,
+        )
+        detail = ""
+        try:
+            detail = exc.response.json().get("detail", "")
+        except Exception:
+            detail = exc.response.text
+        if exc.response.status_code == 503:
+            return (
+                "Baseline unavailable. Ensure runtime env has `GEMINI_API_KEY` or `OPENAI_API_KEY` "
+                "and restart server with `uv run --env-file .env ...`.\n"
+                f"Server detail: {detail}"
+            )
+        return f"Request failed ({exc.response.status_code}): {detail}"
+    except httpx.RequestError as exc:
+        logger.error("Baseline request error: %s", repr(exc))
+        return f"Network/request error calling baseline endpoint: {exc}"
 
 
 def run_grader(session_id: str) -> str:
     if not session_id.strip():
         return "Missing session_id."
+    logger.info("Grader run requested session_id=%s", session_id.strip())
     try:
         payload = _request("POST", "/grader", {"session_id": session_id.strip()})
+        logger.info("Grader run completed session_id=%s", session_id.strip())
         return json.dumps(payload, indent=2)
     except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Grader HTTP status error session_id=%s status=%s detail=%s",
+            session_id.strip(),
+            exc.response.status_code,
+            exc.response.text,
+        )
         detail = ""
         try:
             detail = exc.response.json().get("detail", "")

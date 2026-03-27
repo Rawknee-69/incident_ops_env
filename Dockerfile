@@ -1,5 +1,9 @@
 FROM ghcr.io/meta-pytorch/openenv-base:latest
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app/env
 
 COPY pyproject.toml .
@@ -24,8 +28,7 @@ ENV MAX_CONCURRENT_ENVS=100
 
 EXPOSE 7860
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:7860/health || exit 1
 
 CMD ["/bin/sh", "-c", "uvicorn incident_ops_env.server.app:app --host 0.0.0.0 --port 7860 --workers ${WORKERS}"]
-

@@ -53,20 +53,24 @@ def grade_task2(episode_history: list[dict], ground_truth: dict) -> float:
 
 def grade_task3(episode_history: list[dict], ground_truth: dict) -> float:
     score = 0.0
+
+    should_complete = set(ground_truth.get("steps_that_should_complete", []))
     completed_steps = {
         a.get("runbook_step_id")
         for a in episode_history
         if a.get("action_type") == "execute_runbook_step" and a.get("_was_successful", False)
     }
-    should_complete = set(ground_truth.get("steps_that_should_complete", []))
-    score += len(completed_steps & should_complete) * 0.1
+    if should_complete:
+        step_score_each = 0.40 / len(should_complete)
+        score += len(completed_steps & should_complete) * step_score_each
 
-    if any(
+    escalated_correctly = any(
         a.get("action_type") == "escalate"
         and a.get("escalation_team") == ground_truth.get("correct_escalation_team")
         for a in episode_history
-    ):
-        score += 0.2
+    )
+    if escalated_correctly:
+        score += 0.30
 
     retries = sum(
         1
@@ -75,15 +79,17 @@ def grade_task3(episode_history: list[dict], ground_truth: dict) -> float:
         and a.get("runbook_step_id") == ground_truth.get("step_that_should_escalate")
     )
     if retries > 1:
-        score -= 0.1
+        score -= 0.10
 
     required = [kw.lower() for kw in ground_truth.get("required_postmortem_keywords", [])]
     for action in episode_history:
         if action.get("action_type") == "write_postmortem" and action.get("postmortem_text"):
             text = action["postmortem_text"].lower()
-            matches = sum(1 for keyword in required if keyword in text)
             if required:
-                score += 0.3 * (matches / len(required))
+                matches = sum(1 for kw in required if kw in text)
+                score += 0.30 * (matches / len(required))
+            else:
+                score += 0.30
             break
 
-    return round(min(score, 1.0), 2)
+    return round(min(max(score, 0.0), 1.0), 2)

@@ -136,10 +136,49 @@ open http://localhost:7860/ui
 ```
 
 ### Client Usage
+
+Install the client from your running HuggingFace Space:
+
+```bash
+pip install git+https://huggingface.co/spaces/YOUR-USERNAME/incident_ops_env
+```
+
+Then use it:
+
+```python
+import asyncio
+from incident_ops_env import IncidentAction, IncidentOpsEnv
+
+async def main():
+    async with IncidentOpsEnv(base_url="https://YOUR-USERNAME-incident-ops-env.hf.space") as env:
+        # Reset to Task 1 with a fixed seed for reproducibility
+        result = await env.reset(task_id=1, seed=42)
+        print("Alerts:", len(result.observation.active_alerts))
+
+        # Take an action
+        action = IncidentAction(
+            action_type="classify_alert",
+            severity="P2",
+            service_name="payment-service",
+            pattern_type="database_overload",
+        )
+        result = await env.step(action)
+        print("Reward:", result.reward)
+        print("Done:", result.done)
+
+asyncio.run(main())
+```
+
+Synchronous usage is also supported:
+
 ```python
 from incident_ops_env import IncidentAction, IncidentOpsEnv
 
-# Use as async client against running server
+with IncidentOpsEnv(base_url="https://YOUR-USERNAME-incident-ops-env.hf.space").sync() as env:
+    result = env.reset(task_id=1, seed=42)
+    action = IncidentAction(action_type="no_op")
+    result = env.step(action)
+    print(result.reward)
 ```
 
 ### Baseline
@@ -187,8 +226,8 @@ Scripted deterministic baseline (`BASELINE_PROVIDER=scripted`) reproducibly repo
 
 - `task_1`: `0.67`
 - `task_2`: `0.50`
-- `task_3`: `0.40`
-- average: `0.52`
+- `task_3`: `0.57`
+- average: `0.58`
 
 These values come from fixed seeds in `baseline.py` and can be re-run locally via:
 

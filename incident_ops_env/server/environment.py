@@ -44,6 +44,7 @@ class IncidentOpsEnvironment:
         self.failed_step_ids: set[str] = set()
         self.escalated_step_ids: set[str] = set()
         self.irrelevant_log_queries = 0
+        self.wrong_mitigation_count: int = 0
         self.action_history: list[dict] = []
         self.step_rewards: list[float] = []
 
@@ -78,6 +79,7 @@ class IncidentOpsEnvironment:
         self.failed_step_ids = set()
         self.escalated_step_ids = set()
         self.irrelevant_log_queries = 0
+        self.wrong_mitigation_count = 0
         self.action_history = []
         self.step_rewards = []
         return self._build_observation()
@@ -115,6 +117,7 @@ class IncidentOpsEnvironment:
                 "step_number": self.step_number,
                 "max_steps": self.max_steps,
                 "irrelevant_log_queries": self.irrelevant_log_queries,
+                "wrong_mitigation_count": self.wrong_mitigation_count,
             },
             scenario_ground_truth=self.current_scenario.get("ground_truth", {}),
         )
@@ -185,8 +188,11 @@ class IncidentOpsEnvironment:
                 return False, "classify_alert requires severity, service_name, pattern_type."
         if action.action_type == ActionType.FILTER_LOGS and not action.log_service:
             return False, "filter_logs requires log_service."
-        if action.action_type == ActionType.GET_METRIC and not action.metric_name:
-            return False, "get_metric requires metric_name."
+        if action.action_type == ActionType.GET_METRIC:
+            if not action.metric_name:
+                return False, "get_metric requires metric_name."
+            if not action.service_name:
+                return False, "get_metric requires service_name. Specify which service to query metrics for."
         if action.action_type == ActionType.PROPOSE_MITIGATION and not action.command:
             return False, "propose_mitigation requires command."
         if action.action_type == ActionType.WRITE_POSTMORTEM and not (action.postmortem_text or "").strip():
@@ -217,7 +223,10 @@ class IncidentOpsEnvironment:
             return result
 
         if action.action_type == ActionType.GET_METRIC:
-            service_name = action.service_name or self.current_scenario.get("ground_truth", {}).get("root_cause_service")
+            service_name = action.service_name or ""
+            if not service_name:
+                self.last_action_result = "get_metric requires service_name. Specify which service to query."
+                return result
             history = (
                 self.current_scenario.get("metric_database", {})
                 .get(service_name, {})
@@ -291,6 +300,8 @@ class IncidentOpsEnvironment:
                 result["task_complete"] = True
                 self.last_action_result = "Mitigation accepted and incident stabilized."
             else:
+                self.wrong_mitigation_count += 1
+                result["wrong_mitigation_count"] = self.wrong_mitigation_count
                 self.last_action_result = "Mitigation command executed but did not resolve incident."
             return result
 

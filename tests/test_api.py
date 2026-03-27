@@ -32,7 +32,10 @@ def test_reset_step_state():
 def test_baseline_returns_503_without_provider_key(monkeypatch):
     import baseline
 
-    monkeypatch.setattr(baseline, "run_baseline_sync", lambda: (_ for _ in ()).throw(EnvironmentError("missing")))
+    async def _raise():
+        raise EnvironmentError("missing")
+
+    monkeypatch.setattr(baseline, "run_baseline", _raise)
     client = TestClient(app)
     response = client.post("/baseline")
     assert response.status_code == 503

@@ -28,7 +28,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.scripts]
-server = "server.app:main"
+incident-ops-env = "incident_ops_env.server.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["incident_ops_env"]

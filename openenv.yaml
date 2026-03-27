@@ -2,8 +2,11 @@ name: incident_ops_env
 version: "1.0.0"
 description: >
   Production incident response environment for RL agent training.
-author: "local-dev"
+  Simulates real SRE on-call workflows: alert triage, root cause analysis,
+  and multi-step runbook execution with escalation and postmortem writing.
+author: "openenv-contrib"
 license: MIT
+
 tasks:
   - id: 1
     name: alert_triage
@@ -17,6 +20,7 @@ tasks:
     name: incident_playbook
     difficulty: hard
     max_steps: 25
+
 endpoints:
   reset: POST /reset
   step: POST /step
@@ -25,3 +29,13 @@ endpoints:
   tasks: GET /tasks
   grader: POST /grader
   baseline: POST /baseline
+
+hf_space:
+  sdk: docker
+  app_port: 7860
+  tags:
+    - openenv
+    - reinforcement-learning
+    - sre
+    - incident-response
+    - rl

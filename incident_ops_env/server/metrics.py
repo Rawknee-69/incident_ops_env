@@ -79,11 +79,14 @@ class IncidentMetrics:
                 p50 = sorted_values[int(0.5 * (len(sorted_values) - 1))]
                 latency[endpoint] = {"p50": round(p50, 2), "count": len(values)}
 
+            total_actions = sum(self.action_type_counts.values())
+
             return {
                 "server": {
                     "uptime_seconds": round(now - self._start_time, 1),
+                    "uptime_human": _format_uptime(now - self._start_time),
                     "active_sessions": len(self.active_sessions),
-                    "active_sessions_detail": self.active_sessions,
+                    "active_sessions_detail": dict(self.active_sessions),
                 },
                 "episodes": {
                     "started": self.episodes_started,
@@ -102,14 +105,18 @@ class IncidentMetrics:
                     "recent": list(self.recent_episode_scores)[-10:],
                 },
                 "steps": {
+                    "total": total_actions,
                     "per_second": round(len(recent_steps) / 60.0, 2),
                     "invalid_action_rate": round(
-                        self.invalid_action_count / max(1, sum(self.action_type_counts.values())),
+                        self.invalid_action_count / max(1, total_actions),
                         3,
                     ),
-                    "no_op_rate": round(self.no_op_count / max(1, sum(self.action_type_counts.values())), 3),
+                    "no_op_rate": round(self.no_op_count / max(1, total_actions), 3),
                     "action_type_distribution": dict(self.action_type_counts),
                     "recent_rewards": list(self.step_rewards)[-20:],
+                    "avg_reward": round(
+                        sum(self.step_rewards) / len(self.step_rewards), 4
+                    ) if self.step_rewards else 0.0,
                 },
                 "api": {"request_counts": dict(self.request_counts), "latency_stats": latency},
             }
@@ -137,6 +144,13 @@ class LiveMetricsHub:
             if queue.full():
                 _ = queue.get_nowait()
             queue.put_nowait(event)
+
+
+def _format_uptime(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h}h {m}m {s}s"
 
 
 metrics = IncidentMetrics()

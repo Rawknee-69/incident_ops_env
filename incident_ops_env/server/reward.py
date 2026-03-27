@@ -69,7 +69,9 @@ def compute_step_reward(
         if action.command == scenario_ground_truth.get("correct_mitigation_command"):
             _add(breakdown, "CORRECT_MITIGATION")
         else:
-            _add(breakdown, "WRONG_MITIGATION")
+            wrong_count = episode_state.get("wrong_mitigation_count", 0)
+            if wrong_count >= 2:
+                _add(breakdown, "WRONG_MITIGATION")
     elif action.action_type == ActionType.EXECUTE_RUNBOOK_STEP:
         if action_result.get("step_success"):
             _add(breakdown, "RUNBOOK_STEP_CORRECT")

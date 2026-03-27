@@ -151,8 +151,17 @@ class IncidentState(BaseModel):
     reward_breakdown: dict = Field(description="Aggregated reward components.")
 
 
+class IncidentReward(BaseModel):
+    value: float = Field(description="Reward value for single step.")
+    breakdown: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-component reward contribution for single step.",
+    )
+
+
 class IncidentStepResult(BaseModel):
     observation: IncidentObservation = Field(description="Observation after action.")
     reward: float = Field(description="Reward for single step.")
+    reward_model: IncidentReward = Field(description="Typed reward payload for the step.")
     done: bool = Field(description="Whether episode ended after this step.")
     info: dict = Field(description="Additional metadata including reward breakdown.")

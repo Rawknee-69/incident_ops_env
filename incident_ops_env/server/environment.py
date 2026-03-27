@@ -9,6 +9,7 @@ from incident_ops_env.models import (
     ActionType,
     IncidentAction,
     IncidentObservation,
+    IncidentReward,
     IncidentState,
     IncidentStepResult,
     MetricSnapshot,
@@ -129,6 +130,7 @@ class IncidentOpsEnvironment:
         return IncidentStepResult(
             observation=self._build_observation(),
             reward=reward,
+            reward_model=IncidentReward(value=reward, breakdown=breakdown),
             done=self.is_done,
             info={
                 "episode_id": self.episode_id,

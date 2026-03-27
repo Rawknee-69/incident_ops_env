@@ -10,6 +10,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocke
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+import baseline as baseline_runner
 from incident_ops_env.models import IncidentAction, IncidentObservation
 from incident_ops_env.server.metrics import metrics
 from incident_ops_env.server.session_manager import SessionManager
@@ -148,6 +149,7 @@ async def step(payload: StepRequest, x_session_id: str | None = Header(default=N
     return {
         "observation": result.observation.model_dump(),
         "reward": result.reward,
+        "reward_model": result.reward_model.model_dump(),
         "done": result.done,
         "info": result.info,
     }
@@ -183,10 +185,8 @@ async def grader(payload: GraderRequest) -> dict[str, Any]:
 
 @app.post("/baseline")
 async def baseline() -> dict:
-    from baseline import run_baseline_sync
-
     try:
-        return run_baseline_sync()
+        return baseline_runner.run_baseline_sync()
     except EnvironmentError as exc:
         raise HTTPException(status_code=503, detail="No LLM API key configured.") from exc
 

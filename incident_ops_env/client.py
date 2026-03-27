@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from openenv.core.http_env_client import HTTPEnvClient
 
-from incident_ops_env.models import IncidentAction, IncidentObservation, IncidentState, IncidentStepResult
+from incident_ops_env.models import IncidentAction, IncidentObservation, IncidentReward, IncidentState, IncidentStepResult
 
 
 class IncidentOpsEnv(HTTPEnvClient[IncidentAction, IncidentObservation]):
@@ -10,9 +10,16 @@ class IncidentOpsEnv(HTTPEnvClient[IncidentAction, IncidentObservation]):
         return {"action": action.model_dump(exclude_none=True)}
 
     def _parse_result(self, payload: dict) -> IncidentStepResult:
+        reward_model_payload = payload.get("reward_model")
+        if reward_model_payload is None:
+            reward_model_payload = {
+                "value": payload["reward"],
+                "breakdown": payload.get("info", {}).get("reward_breakdown", {}),
+            }
         return IncidentStepResult(
             observation=IncidentObservation(**payload["observation"]),
             reward=payload["reward"],
+            reward_model=IncidentReward(**reward_model_payload),
             done=payload["done"],
             info=payload.get("info", {}),
         )

@@ -153,7 +153,18 @@ If Docker is unavailable in your shell session, skip that check:
 ```
 
 ## Baseline Scores
-TBD
+Scripted deterministic baseline (`BASELINE_PROVIDER=scripted`) reproducibly reports:
+
+- `task_1`: `0.67`
+- `task_2`: `0.50`
+- `task_3`: `0.40`
+- average: `0.52`
+
+These values come from fixed seeds in `baseline.py` and can be re-run locally via:
+
+```bash
+BASELINE_PROVIDER=scripted .venv/bin/python baseline.py
+```
 
 ## License
 MIT

@@ -140,7 +140,7 @@ open http://localhost:7860/ui
 Install the client from your running HuggingFace Space:
 
 ```bash
-pip install git+https://huggingface.co/spaces/YOUR-USERNAME/incident_ops_env
+pip install git+https://huggingface.co/spaces/kyoiske/incident_ops_env
 ```
 
 Then use it:
@@ -150,7 +150,7 @@ import asyncio
 from incident_ops_env import IncidentAction, IncidentOpsEnv
 
 async def main():
-    async with IncidentOpsEnv(base_url="https://YOUR-USERNAME-incident-ops-env.hf.space") as env:
+    async with IncidentOpsEnv(base_url="https://kyoiske-incident-ops-env.hf.space") as env:
         # Reset to Task 1 with a fixed seed for reproducibility
         result = await env.reset(task_id=1, seed=42)
         print("Alerts:", len(result.observation.active_alerts))
@@ -174,7 +174,7 @@ Synchronous usage is also supported:
 ```python
 from incident_ops_env import IncidentAction, IncidentOpsEnv
 
-with IncidentOpsEnv(base_url="https://YOUR-USERNAME-incident-ops-env.hf.space").sync() as env:
+with IncidentOpsEnv(base_url="https://kyoiske-incident-ops-env.hf.space").sync() as env:
     result = env.reset(task_id=1, seed=42)
     action = IncidentAction(action_type="no_op")
     result = env.step(action)

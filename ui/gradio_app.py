@@ -17,9 +17,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger("incident_ops_ui")
 
+# Scrollable workbench: tab body max-height + Code/Textbox line caps (Gradio scrolls inside editors).
+# Passed to ``gr.mount_gradio_app(..., css=...)`` (Gradio 6: avoid ``css`` on ``Blocks()``).
+WORKBENCH_SCROLL_CSS = """
+.workbench-tab-scroll {
+  max-height: min(72vh, 900px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.4rem;
+  box-sizing: border-box;
+}
+"""
+_CODE_PANEL = {"lines": 8, "max_lines": 22}
+_STATUS_BOX = {"lines": 1, "max_lines": 5}
+
 
 def _backend_base_url() -> str:
     return os.environ.get("UI_BACKEND_URL", "http://127.0.0.1:7860")
+
+
+def _should_use_in_process_api() -> bool:
+    """Call the FastAPI app via ASGI in-process when Gradio runs inside the same uvicorn process.
+
+    Loopback HTTP (127.0.0.1:7860) fans out to random workers when ``--workers`` > 1, which breaks
+    session stickiness (reset/step/grader) and breaks ``/baseline`` when it used HTTP internally.
+    """
+    if os.environ.get("UI_USE_IN_PROCESS_API", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    backend = _backend_base_url().rstrip("/").lower()
+    return backend in ("http://127.0.0.1:7860", "http://localhost:7860")
 
 
 def _request(
@@ -29,12 +55,22 @@ def _request(
     headers: dict[str, str] | None = None,
     timeout_seconds: float = 60.0,
 ) -> dict:
-    url = _backend_base_url().rstrip("/") + path
     started_at = time.perf_counter()
     logger.debug("HTTP request start method=%s path=%s timeout=%s", method, path, timeout_seconds)
-    with httpx.Client(timeout=timeout_seconds) as client:
+
+    if _should_use_in_process_api():
+        from incident_ops_env.server.app import app
+
+        transport = httpx.ASGITransport(app=app)
+        client_cm = httpx.Client(transport=transport, base_url="http://local", timeout=timeout_seconds)
+        request_target = path
+    else:
+        client_cm = httpx.Client(timeout=timeout_seconds)
+        request_target = _backend_base_url().rstrip("/") + path
+
+    with client_cm as client:
         try:
-            response = client.request(method=method, url=url, json=payload, headers=headers)
+            response = client.request(method=method, url=request_target, json=payload, headers=headers)
         except httpx.RequestError as exc:
             elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
             logger.error(
@@ -310,63 +346,75 @@ def build_gradio_app() -> gr.Blocks:
     with gr.Blocks(title="IncidentOpsEnv Observability UI") as demo:
         gr.Markdown("# IncidentOpsEnv - Gradio Observability")
         gr.Markdown("Use this UI to inspect episodes, backend metrics, graders, baseline runs, and scenario uploads.")
+        gr.Markdown("## Environment Workbench")
 
         with gr.Tab("Episode Runner"):
-            with gr.Row():
-                task_id = gr.Dropdown(choices=[1, 2, 3], value=1, label="Task ID")
-                scenario_id = gr.Textbox(label="Scenario ID (optional)")
-                seed = gr.Number(label="Seed (optional)", precision=0)
-            reset_btn = gr.Button("Reset Episode")
-            session_id = gr.Textbox(label="Session ID")
-            observation_box = gr.Code(label="Observation", language="json")
-            reset_status = gr.Textbox(label="Reset Status")
+            with gr.Column(elem_classes=["workbench-tab-scroll"]):
+                with gr.Row():
+                    task_id = gr.Dropdown(choices=[1, 2, 3], value=1, label="Task ID")
+                    scenario_id = gr.Textbox(label="Scenario ID (optional)")
+                    seed = gr.Number(label="Seed (optional)", precision=0)
+                reset_btn = gr.Button("Reset Episode")
+                session_id = gr.Textbox(label="Session ID")
+                observation_box = gr.Code(label="Observation", language="json", **_CODE_PANEL)
+                reset_status = gr.Textbox(label="Reset Status", **_STATUS_BOX)
 
-            gr.Markdown("### Step with JSON action")
-            action_json = gr.Code(
-                value='{\n  "action_type": "no_op"\n}',
-                language="json",
-                label="Action JSON",
-            )
-            step_btn = gr.Button("Run Step")
-            step_observation = gr.Code(label="Observation After Step", language="json")
-            step_meta = gr.Code(label="Reward/Done/Info", language="json")
-            step_status = gr.Textbox(label="Step Status")
-            state_btn = gr.Button("Fetch State")
-            state_box = gr.Code(label="Current State", language="json")
+                gr.Markdown("### Step with JSON action")
+                action_json = gr.Code(
+                    value='{\n  "action_type": "no_op"\n}',
+                    language="json",
+                    label="Action JSON",
+                    **_CODE_PANEL,
+                )
+                step_btn = gr.Button("Run Step")
+                step_observation = gr.Code(label="Observation After Step", language="json", **_CODE_PANEL)
+                step_meta = gr.Code(label="Reward/Done/Info", language="json", **_CODE_PANEL)
+                step_status = gr.Textbox(label="Step Status", **_STATUS_BOX)
+                state_btn = gr.Button("Fetch State")
+                state_box = gr.Code(label="Current State", language="json", **_CODE_PANEL)
 
-            reset_btn.click(run_reset, [task_id, scenario_id, seed], [session_id, observation_box, reset_status])
-            step_btn.click(run_step, [session_id, action_json], [step_observation, step_meta, step_status])
-            state_btn.click(fetch_state, [session_id], [state_box])
+                reset_btn.click(run_reset, [task_id, scenario_id, seed], [session_id, observation_box, reset_status])
+                step_btn.click(run_step, [session_id, action_json], [step_observation, step_meta, step_status])
+                state_btn.click(fetch_state, [session_id], [state_box])
 
-        with gr.Tab("Tasks and Grader"):
-            tasks_btn = gr.Button("Load /tasks")
-            tasks_box = gr.Code(label="Tasks", language="json")
-            grader_btn = gr.Button("Run /grader for Session")
-            grader_box = gr.Code(label="Grader Result", language="json")
-            tasks_btn.click(fetch_tasks, None, [tasks_box])
-            grader_btn.click(run_grader, [session_id], [grader_box])
+        with gr.Tab("Tasks + Grader"):
+            with gr.Column(elem_classes=["workbench-tab-scroll"]):
+                tasks_btn = gr.Button("Load /tasks")
+                tasks_box = gr.Code(label="Tasks", language="json", **_CODE_PANEL)
+                grader_btn = gr.Button("Run /grader for Session")
+                grader_box = gr.Code(label="Grader Result", language="json", **_CODE_PANEL)
+                tasks_btn.click(fetch_tasks, None, [tasks_box])
+                grader_btn.click(run_grader, [session_id], [grader_box])
 
         with gr.Tab("Metrics"):
-            metrics_btn = gr.Button("Refresh Metrics")
-            metrics_box = gr.Code(label="/metrics snapshot", language="json")
-            ws_info = gr.Textbox(label="Live Stream Endpoint", value=metrics_stream_info())
-            metrics_btn.click(fetch_metrics, None, [metrics_box])
-            gr.Timer(2.0).tick(fetch_metrics, None, [metrics_box])
+            with gr.Column(elem_classes=["workbench-tab-scroll"]):
+                metrics_btn = gr.Button("Refresh Metrics")
+                metrics_box = gr.Code(label="/metrics snapshot", language="json", **_CODE_PANEL)
+                ws_info = gr.Textbox(
+                    label="Live Stream Endpoint",
+                    value=metrics_stream_info(),
+                    lines=2,
+                    max_lines=4,
+                )
+                metrics_btn.click(fetch_metrics, None, [metrics_box])
+                gr.Timer(2.0).tick(fetch_metrics, None, [metrics_box])
 
         with gr.Tab("Baseline"):
-            baseline_btn = gr.Button("Run /baseline")
-            baseline_box = gr.Code(label="Baseline Result", language="json")
-            baseline_btn.click(run_baseline, None, [baseline_box])
+            with gr.Column(elem_classes=["workbench-tab-scroll"]):
+                baseline_btn = gr.Button("Run /baseline")
+                baseline_box = gr.Code(label="Baseline Result", language="json", **_CODE_PANEL)
+                baseline_btn.click(run_baseline, None, [baseline_box])
 
         with gr.Tab("Scenario Upload/Validation"):
-            file_input = gr.File(label="Upload scenario JSON")
-            validate_btn = gr.Button("Validate Scenario")
-            validate_out = gr.Code(label="Validation Result", language="json")
-            upload_btn = gr.Button("Upload Scenario")
-            upload_out = gr.Code(label="Upload Result", language="json")
-            list_btn = gr.Button("List Scenarios")
-            list_out = gr.Code(label="Scenario Registry", language="json")
-            validate_btn.click(validate_scenario, [file_input], [validate_out])
-            upload_btn.click(upload_scenario, [file_input], [upload_out])
-            list_btn.click(list_scenarios, None, [list_out])
+            with gr.Column(elem_classes=["workbench-tab-scroll"]):
+                file_input = gr.File(label="Upload scenario JSON")
+                validate_btn = gr.Button("Validate Scenario")
+                validate_out = gr.Code(label="Validation Result", language="json", **_CODE_PANEL)
+                upload_btn = gr.Button("Upload Scenario")
+                upload_out = gr.Code(label="Upload Result", language="json", **_CODE_PANEL)
+                list_btn = gr.Button("List Scenarios")
+                list_out = gr.Code(label="Scenario Registry", language="json", **_CODE_PANEL)
+                validate_btn.click(validate_scenario, [file_input], [validate_out])
+                upload_btn.click(upload_scenario, [file_input], [upload_out])
+                list_btn.click(list_scenarios, None, [list_out])
     return demo

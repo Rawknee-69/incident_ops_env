@@ -21,7 +21,7 @@ from incident_ops_env.server.scenario_loader import (
     validate_scenario_data,
 )
 from incident_ops_env.server.session_manager import SessionManager
-from ui import build_gradio_app
+from ui.gradio_app import WORKBENCH_SCROLL_CSS, build_gradio_app
 
 
 app = FastAPI(title="IncidentOpsEnv", version="1.0.0")
@@ -602,7 +602,9 @@ async def upload_scenario(payload: ScenarioRequest) -> dict[str, Any]:
 @app.post("/baseline")
 async def baseline() -> dict:
     try:
-        return await baseline_runner.run_baseline()
+        # In-process ASGI: HTTP to localhost would fan out across uvicorn workers and break
+        # session stickiness (reset on worker A, step on worker B -> 404).
+        return await baseline_runner.run_baseline(use_asgi_local=True)
     except EnvironmentError as exc:
         raise HTTPException(status_code=503, detail="No LLM API key configured.") from exc
 
@@ -686,4 +688,4 @@ async def metrics_websocket_endpoint(websocket: WebSocket):
 
 
 gradio_demo = build_gradio_app()
-app = gr.mount_gradio_app(app, gradio_demo, path="/ui")
+app = gr.mount_gradio_app(app, gradio_demo, path="/ui", css=WORKBENCH_SCROLL_CSS)

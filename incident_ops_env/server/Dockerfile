@@ -19,6 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
 ENV PATH="/app/env/.venv/bin:$PATH"
+# Worker count is fixed in CMD (--workers 1); WORKERS env is not passed to uvicorn.
 ENV WORKERS=1
 ENV MAX_CONCURRENT_ENVS=100
 
@@ -27,4 +28,4 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:7860/health || exit 1
 
-CMD ["/bin/sh", "-c", "uvicorn incident_ops_env.server.app:app --host 0.0.0.0 --port 7860 --workers ${WORKERS}"]
+CMD ["/bin/sh", "-c", "exec uvicorn incident_ops_env.server.app:app --host 0.0.0.0 --port 7860 --workers 1"]

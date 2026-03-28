@@ -32,7 +32,7 @@ def test_reset_step_state():
 def test_baseline_returns_503_without_provider_key(monkeypatch):
     import baseline
 
-    async def _raise():
+    async def _raise(**_kwargs):
         raise EnvironmentError("missing")
 
     monkeypatch.setattr(baseline, "run_baseline", _raise)

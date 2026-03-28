@@ -17,7 +17,8 @@ class IncidentMetrics:
         self.endpoint_latencies = defaultdict(list)
         self.recent_episode_scores = deque(maxlen=50)
         self.step_rewards = deque(maxlen=100)
-        self.step_timestamps = deque(maxlen=1000)
+        # (timestamp, action_was_valid) for rolling window rates
+        self.step_events: deque[tuple[float, bool]] = deque(maxlen=2000)
         self.action_type_counts = defaultdict(int)
         self.invalid_action_count = 0
         self.no_op_count = 0
@@ -50,7 +51,7 @@ class IncidentMetrics:
         with self._lock:
             self.action_type_counts[action_type] += 1
             self.step_rewards.append(reward)
-            self.step_timestamps.append(time.time())
+            self.step_events.append((time.time(), is_valid))
             if not is_valid:
                 self.invalid_action_count += 1
             if action_type == "no_op":
@@ -61,7 +62,10 @@ class IncidentMetrics:
     def snapshot(self) -> dict:
         with self._lock:
             now = time.time()
-            recent_steps = [ts for ts in self.step_timestamps if now - ts <= 60.0]
+            uptime_s = max(now - self._start_time, 1e-9)
+            recent_60 = [(ts, ok) for ts, ok in self.step_events if now - ts <= 60.0]
+            n_recent = len(recent_60)
+            per_second_last_60s = n_recent / 60.0
             all_scores = [x["score"] for x in self.recent_episode_scores]
             task_avgs: dict[str, float] = {"task_1": 0.0, "task_2": 0.0, "task_3": 0.0}
             by_task = defaultdict(list)
@@ -80,6 +84,14 @@ class IncidentMetrics:
                 latency[endpoint] = {"p50": round(p50, 2), "count": len(values)}
 
             total_actions = sum(self.action_type_counts.values())
+            per_second_since_start = total_actions / uptime_s
+            invalid_in_60 = sum(1 for _, ok in recent_60 if not ok)
+            invalid_rate_all_time = self.invalid_action_count / max(1, total_actions)
+            invalid_rate_last_60s = (invalid_in_60 / n_recent) if n_recent else None
+            # Headline invalid rate: recent window when it has data, else cumulative
+            invalid_action_rate_display = (
+                invalid_rate_last_60s if n_recent > 0 else invalid_rate_all_time
+            )
 
             return {
                 "server": {
@@ -106,10 +118,14 @@ class IncidentMetrics:
                 },
                 "steps": {
                     "total": total_actions,
-                    "per_second": round(len(recent_steps) / 60.0, 2),
-                    "invalid_action_rate": round(
-                        self.invalid_action_count / max(1, total_actions),
-                        3,
+                    # Average steps/s since process start (stable; avoids 0.00 when idle > 60s)
+                    "per_second": round(per_second_since_start, 4),
+                    "per_second_last_60s": round(per_second_last_60s, 4),
+                    # 0..1 fraction; prefers last-60s window when any steps in window, else all-time
+                    "invalid_action_rate": round(invalid_action_rate_display, 4),
+                    "invalid_action_rate_all_time": round(invalid_rate_all_time, 4),
+                    "invalid_action_rate_last_60s": (
+                        round(invalid_rate_last_60s, 4) if invalid_rate_last_60s is not None else None
                     ),
                     "no_op_rate": round(self.no_op_count / max(1, total_actions), 3),
                     "action_type_distribution": dict(self.action_type_counts),

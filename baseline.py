@@ -286,7 +286,17 @@ async def _run_task_with_client(task_id: int, seed: int, provider: LLMProvider, 
     }
 
 
-async def run_task(task_id: int, seed: int, provider: LLMProvider) -> dict:
+async def run_task(
+    task_id: int, seed: int, provider: LLMProvider, *, use_asgi_local: bool = False
+) -> dict:
+    """Run one task episode. Use ``use_asgi_local=True`` when calling from inside the server so
+    reset/step/grader hit the same in-memory SessionManager (required when uvicorn uses workers>1).
+    """
+    if use_asgi_local:
+        client, prefix = _build_http_client_asgi_local()
+        async with client:
+            return await _run_task_with_client(task_id, seed, provider, client, prefix)
+
     client, prefix = _build_http_client()
     async with client:
         try:
@@ -310,7 +320,7 @@ def _build_http_client_asgi_local() -> tuple[httpx.AsyncClient, str]:
     return httpx.AsyncClient(transport=transport, base_url="http://local", timeout=60.0), ""
 
 
-async def run_baseline() -> dict:
+async def run_baseline(*, use_asgi_local: bool = False) -> dict:
     provider_name_hint = os.environ.get("BASELINE_PROVIDER", "").strip().lower()
     if provider_name_hint == "scripted":
         provider: LLMProvider = ScriptedProvider()
@@ -321,7 +331,7 @@ async def run_baseline() -> dict:
     scores = {}
     invalid_outputs_total = 0
     for task_id, seed in SEEDS.items():
-        task_result = await run_task(task_id, seed, provider)
+        task_result = await run_task(task_id, seed, provider, use_asgi_local=use_asgi_local)
         invalid_outputs_total += int(task_result.get("invalid_output_count", 0))
         scores[f"task_{task_id}"] = {
             "score": task_result["score"],
@@ -338,8 +348,8 @@ async def run_baseline() -> dict:
     }
 
 
-def run_baseline_sync() -> dict:
-    return asyncio.run(run_baseline())
+def run_baseline_sync(*, use_asgi_local: bool = False) -> dict:
+    return asyncio.run(run_baseline(use_asgi_local=use_asgi_local))
 
 
 if __name__ == "__main__":

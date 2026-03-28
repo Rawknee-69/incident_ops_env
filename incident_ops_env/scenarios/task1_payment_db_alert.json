@@ -1,0 +1,11 @@
+{
+  "task_id": 1,
+  "scenario_id": "task1_payment_db_alert",
+  "description": "Payment service failures due to database overload with noisy stale alerts (alias fixture for UI placeholder).",
+  "alerts": [
+    {"alert_id": "ALT-001", "title": "5xx spike payment-service", "severity": "P2", "service": "payment-service", "triggered_at": "2026-03-27T01:00:00Z", "metadata": {"resolved": false, "noise_field_1": "ticket-1001"}},
+    {"alert_id": "ALT-002", "title": "[RESOLVED] memory user-service", "severity": "P3", "service": "user-service", "triggered_at": "2026-03-27T00:10:00Z", "metadata": {"resolved": true}},
+    {"alert_id": "ALT-003", "title": "Maintenance infra notice", "severity": "P3", "service": "infra-team", "triggered_at": "2026-03-27T00:40:00Z", "metadata": {"type": "maintenance"}}
+  ],
+  "ground_truth": {"severity": "P2", "service": "payment-service", "pattern_type": "database_overload"}
+}

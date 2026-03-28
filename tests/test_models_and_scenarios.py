@@ -17,7 +17,7 @@ def test_scenario_loader_by_task():
     task1 = list_scenarios_for_task(1, include_uploaded=False)
     task2 = list_scenarios_for_task(2, include_uploaded=False)
     task3 = list_scenarios_for_task(3, include_uploaded=False)
-    assert len(task1) == 3
+    assert len(task1) == 4
     assert len(task2) == 3
     assert len(task3) == 3
 
@@ -26,6 +26,9 @@ def test_scenario_loader_by_id():
     scenario = load_scenario_by_id("task2_medium_001")
     assert scenario["task_id"] == 2
     assert "ground_truth" in scenario
+
+    payment = load_scenario_by_id("task1_payment_db_alert", expected_task_id=1)
+    assert payment["scenario_id"] == "task1_payment_db_alert"
 
 
 def test_scenario_task_mismatch_rejected():

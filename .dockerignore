@@ -1,0 +1,14 @@
+# Smaller Docker build context for HF Spaces (faster upload, fewer irrelevant layers)
+.git
+.gitattributes
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.cursor
+docs
+AGENTS.md
+.env
+.env.example
+tests

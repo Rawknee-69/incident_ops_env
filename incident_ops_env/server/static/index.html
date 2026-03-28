@@ -114,6 +114,48 @@
       opacity: 0.85;
     }
 
+    .reward-stream-feed {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      max-height: min(28vh, 260px);
+      overflow: auto;
+      padding: 6px 0;
+    }
+
+    .reward-line {
+      padding: 3px 0;
+      border-bottom: 1px solid #22272e;
+    }
+
+    .reward-line.gain { color: var(--green); }
+    .reward-line.loss { color: var(--red); }
+    .reward-line .ts { color: var(--muted); margin-right: 6px; }
+
+    .obs-ctx-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    @media (max-width: 980px) {
+      .obs-ctx-grid { grid-template-columns: 1fr; }
+    }
+
+    .obs-ctx-block h5 {
+      margin: 0 0 4px;
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .obs-ctx-block pre {
+      margin: 0;
+      max-height: 140px;
+      overflow: auto;
+      font-size: 11px;
+    }
+
     .bar-row {
       display: flex;
       align-items: center;
@@ -466,6 +508,11 @@
 
   <div class="grid">
     <div class="card">
+      <h3>Live reward stream</h3>
+      <p class="stat-sublabel" style="margin-top:0;">Server-wide: each /step (gain vs loss). Refreshes with the dashboard.</p>
+      <div class="reward-stream-feed" id="reward-stream-feed"></div>
+    </div>
+    <div class="card">
       <h3>Recent Episodes</h3>
       <div class="scroll-box" id="episode-feed"></div>
     </div>
@@ -481,6 +528,14 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns: 1fr;">
+    <div class="card">
+      <h3>Episode reward timeline</h3>
+      <p class="stat-sublabel" style="margin-top:0;">Current session: rewards and losses after each step (updates on Reset / Step / State).</p>
+      <div class="reward-stream-feed" id="episode-reward-feed"></div>
     </div>
   </div>
 
@@ -541,6 +596,27 @@
           <div class="subcard">
             <h4>Current State</h4>
             <pre class="json-box small" id="episode-state">{}</pre>
+          </div>
+          <div class="subcard">
+            <h4>Observation context</h4>
+            <div class="obs-ctx-grid">
+              <div class="obs-ctx-block">
+                <h5>Meta</h5>
+                <pre id="obs-ctx-meta">{}</pre>
+              </div>
+              <div class="obs-ctx-block">
+                <h5>recent_logs</h5>
+                <pre id="obs-ctx-logs">[]</pre>
+              </div>
+              <div class="obs-ctx-block">
+                <h5>current_metrics</h5>
+                <pre id="obs-ctx-metrics">[]</pre>
+              </div>
+              <div class="obs-ctx-block">
+                <h5>runbook_steps</h5>
+                <pre id="obs-ctx-runbook">[]</pre>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -693,6 +769,71 @@
       return `${h}h ${m}m ${s}s`;
     }
 
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function renderServerRewardStream(stream) {
+      const el = document.getElementById("reward-stream-feed");
+      if (!el) return;
+      const rows = Array.isArray(stream) ? stream.slice().reverse() : [];
+      if (!rows.length) {
+        el.innerHTML = "<div class=\"reward-line\">No /step events recorded yet.</div>";
+        return;
+      }
+      el.innerHTML = rows.map((row) => {
+        const r = Number(row.reward ?? 0);
+        const cls = r >= 0 ? "gain" : "loss";
+        const t = new Date((row.ts || 0) * 1000).toLocaleTimeString();
+        const v = row.valid ? "OK" : "INV";
+        const gl = r >= 0 ? "gain" : "loss";
+        return `<div class="reward-line ${cls}"><span class="ts">${escapeHtml(t)}</span>${
+          escapeHtml(row.session || "")} | ${escapeHtml(row.action_type || "")} | ${v} | <strong>${gl} ${
+          r.toFixed(4)}</strong></div>`;
+      }).join("");
+    }
+
+    function renderEpisodeRewardHistory(entries) {
+      const el = document.getElementById("episode-reward-feed");
+      if (!el) return;
+      const list = Array.isArray(entries) ? entries.slice().reverse() : [];
+      if (!list.length) {
+        el.innerHTML = "<div class=\"reward-line\">No step rewards yet — use Reset then Run Step.</div>";
+        return;
+      }
+      el.innerHTML = list.map((e) => {
+        const r = Number(e.reward ?? 0);
+        const cls = r >= 0 ? "gain" : "loss";
+        const ok = e.action_was_valid ? "valid" : "INVALID";
+        const kind = r >= 0 ? "GAIN" : "LOSS";
+        return `<div class="reward-line ${cls}">step ${e.step_number} | ${escapeHtml(e.action_type)} | ${
+          ok} | <strong>${kind} ${r.toFixed(4)}</strong> | cumulative ${
+          Number(e.total_reward_so_far ?? 0).toFixed(4)}</div>`;
+      }).join("");
+    }
+
+    function renderObservationContext(obs) {
+      if (!obs || typeof obs !== "object") return;
+      const meta = {
+        last_action_result: obs.last_action_result,
+        last_action_was_valid: obs.last_action_was_valid,
+        postmortem_prompt: obs.postmortem_prompt,
+        actions_remaining: obs.actions_remaining,
+      };
+      const m = document.getElementById("obs-ctx-meta");
+      if (m) m.textContent = pretty(meta);
+      const lg = document.getElementById("obs-ctx-logs");
+      if (lg) lg.textContent = pretty(obs.recent_logs ?? []);
+      const c = document.getElementById("obs-ctx-metrics");
+      if (c) c.textContent = pretty(obs.current_metrics ?? []);
+      const rb = document.getElementById("obs-ctx-runbook");
+      if (rb) rb.textContent = pretty(obs.runbook_steps ?? []);
+    }
+
     function updateBar(idSuffix, score) {
       const n = clampScore(score);
       document.getElementById(`bar-${idSuffix}`).style.width = `${n * 100}%`;
@@ -800,6 +941,8 @@
           tbody.appendChild(tr);
         });
       }
+
+      renderServerRewardStream(data.steps?.reward_stream);
     }
 
     async function refreshMetrics() {
@@ -839,6 +982,8 @@
         if (sid) setSessionEverywhere(sid);
         setText("episode-observation", data.observation || {});
         setText("episode-meta", { session_id: sid, status: "reset_complete" });
+        renderObservationContext(data.observation || {});
+        renderEpisodeRewardHistory((data.observation || {}).reward_history || []);
         setStatus("reset-status", "Reset complete.");
       } catch (err) {
         setText("episode-meta", { reset_error: err });
@@ -876,6 +1021,8 @@
           done: data.done,
           info: data.info || {},
         });
+        renderObservationContext(data.observation || {});
+        renderEpisodeRewardHistory((data.observation || {}).reward_history || []);
         setStatus("step-status", "Step complete.");
       } catch (err) {
         setText("episode-meta", { step_error: err });
@@ -895,6 +1042,8 @@
           headers: { "X-Session-ID": sessionId },
         });
         setText("episode-state", data);
+        renderEpisodeRewardHistory(data.reward_history || []);
+        renderObservationContext(data.observation_excerpt || {});
         setStatus("step-status", "State loaded.");
       } catch (err) {
         setText("episode-state", { state_error: err });

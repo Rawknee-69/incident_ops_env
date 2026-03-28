@@ -13,6 +13,7 @@ from incident_ops_env.models import (
     IncidentState,
     IncidentStepResult,
     MetricSnapshot,
+    RewardHistoryEntry,
     RunbookStep,
 )
 from incident_ops_env.server.graders import grade_task1, grade_task2, grade_task3
@@ -47,6 +48,7 @@ class IncidentOpsEnvironment:
         self.wrong_mitigation_count: int = 0
         self.action_history: list[dict] = []
         self.step_rewards: list[float] = []
+        self.reward_history: list[dict[str, Any]] = []
 
     def reset(self, task_id: int, scenario_id: str | None = None, seed: int | None = None) -> IncidentObservation:
         if task_id not in (1, 2, 3):
@@ -82,6 +84,8 @@ class IncidentOpsEnvironment:
         self.wrong_mitigation_count = 0
         self.action_history = []
         self.step_rewards = []
+        self.reward_history = []
+        self._seed_initial_observation_data()
         return self._build_observation()
 
     def step(self, action: IncidentAction) -> IncidentStepResult:
@@ -128,6 +132,16 @@ class IncidentOpsEnvironment:
                 continue
             self.reward_breakdown[key] = self.reward_breakdown.get(key, 0.0) + value
 
+        self.reward_history.append(
+            {
+                "step_number": self.step_number,
+                "reward": round(reward, 4),
+                "total_reward_so_far": round(self.total_reward_so_far, 4),
+                "action_was_valid": self.last_action_was_valid,
+                "action_type": action.action_type.value,
+            }
+        )
+
         history_item = action.model_dump(exclude_none=True)
         history_item["_was_successful"] = bool(action_result.get("step_success", False))
         history_item["_step_number"] = self.step_number
@@ -148,6 +162,16 @@ class IncidentOpsEnvironment:
         )
 
     def state(self) -> IncidentState:
+        obs_dump = self._build_observation().model_dump()
+        excerpt = {
+            "recent_logs": obs_dump.get("recent_logs", []),
+            "current_metrics": obs_dump.get("current_metrics", []),
+            "runbook_steps": obs_dump.get("runbook_steps", []),
+            "last_action_result": obs_dump.get("last_action_result"),
+            "last_action_was_valid": obs_dump.get("last_action_was_valid"),
+            "postmortem_prompt": obs_dump.get("postmortem_prompt"),
+            "actions_remaining": obs_dump.get("actions_remaining"),
+        }
         return IncidentState(
             episode_id=self.episode_id,
             task_id=self.task_id,
@@ -158,6 +182,8 @@ class IncidentOpsEnvironment:
             is_done=self.is_done,
             done_reason=self.done_reason,
             reward_breakdown=self.reward_breakdown,
+            reward_history=[RewardHistoryEntry(**x) for x in self.reward_history],
+            observation_excerpt=excerpt,
         )
 
     def grade(self) -> float:
@@ -357,7 +383,70 @@ class IncidentOpsEnvironment:
             last_action_was_valid=self.last_action_was_valid,
             postmortem_prompt=postmortem_prompt,
             actions_remaining=max(0, self.max_steps - self.step_number),
+            reward_history=[RewardHistoryEntry(**x) for x in self.reward_history],
         )
+
+    def _seed_initial_observation_data(self) -> None:
+        """Populate logs/metrics/runbook context so first observation is not empty for task 1/2."""
+        self.last_action_result = (
+            "Episode started. Review alerts, recent_logs, and current_metrics; then submit an action."
+        )
+        raw_logs = self.current_scenario.get("initial_recent_logs")
+        if isinstance(raw_logs, list) and raw_logs:
+            self.recent_logs = [dict(x) for x in raw_logs[:20]]
+        else:
+            self.recent_logs = self._infer_initial_logs_from_scenario()
+
+        raw_met = self.current_scenario.get("initial_current_metrics")
+        if isinstance(raw_met, list) and raw_met:
+            self.current_metrics = [dict(x) for x in raw_met[:20]]
+        else:
+            self.current_metrics = self._infer_initial_metrics_from_scenario()
+
+    def _infer_initial_logs_from_scenario(self) -> list[dict[str, Any]]:
+        ldb = self.current_scenario.get("log_database") or {}
+        pooled: list[dict[str, Any]] = []
+        for _svc, entries in ldb.items():
+            if isinstance(entries, list):
+                pooled.extend([e for e in entries if isinstance(e, dict)])
+        pooled.sort(key=lambda e: str(e.get("timestamp") or ""))
+        if pooled:
+            return pooled[:12]
+        out: list[dict[str, Any]] = []
+        for a in (self.current_scenario.get("alerts") or [])[:5]:
+            out.append(
+                {
+                    "timestamp": a.get("triggered_at", "2026-01-01T00:00:00Z"),
+                    "service": a.get("service", "unknown"),
+                    "level": "WARN",
+                    "message": f"Context log (from alert): {a.get('title', 'untitled')}",
+                }
+            )
+        return out
+
+    def _infer_initial_metrics_from_scenario(self) -> list[dict[str, Any]]:
+        mdb = self.current_scenario.get("metric_database") or {}
+        out: list[dict[str, Any]] = []
+        for _service, metrics_dict in mdb.items():
+            if not isinstance(metrics_dict, dict):
+                continue
+            for _mname, series in metrics_dict.items():
+                if isinstance(series, list) and series and isinstance(series[-1], dict):
+                    out.append(dict(series[-1]))
+        if out:
+            return out[:12]
+        syn: list[dict[str, Any]] = []
+        for a in (self.current_scenario.get("alerts") or [])[:4]:
+            syn.append(
+                {
+                    "service": a.get("service", "unknown"),
+                    "metric_name": "synthetic_severity_load",
+                    "value": 1.0 if a.get("severity") == "P1" else (0.7 if a.get("severity") == "P2" else 0.4),
+                    "unit": "index",
+                    "timestamp": a.get("triggered_at", "2026-01-01T00:00:00Z"),
+                }
+            )
+        return syn
 
     def _runbook_resolved(self) -> bool:
         if not self.runbook_steps:

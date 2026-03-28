@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import defaultdict, deque
 from asyncio import Queue
+from collections import defaultdict, deque
+from typing import Any
 
 
 class IncidentMetrics:
@@ -19,6 +20,7 @@ class IncidentMetrics:
         self.step_rewards = deque(maxlen=100)
         # (timestamp, action_was_valid) for rolling window rates
         self.step_events: deque[tuple[float, bool]] = deque(maxlen=2000)
+        self.reward_stream: deque[dict[str, Any]] = deque(maxlen=100)
         self.action_type_counts = defaultdict(int)
         self.invalid_action_count = 0
         self.no_op_count = 0
@@ -58,6 +60,18 @@ class IncidentMetrics:
                 self.no_op_count += 1
             if session_id in self.active_sessions:
                 self.active_sessions[session_id]["step"] += 1
+            sid_short = session_id if len(session_id) <= 16 else f"{session_id[:8]}…"
+            gain = "gain" if reward >= 0 else "loss"
+            self.reward_stream.append(
+                {
+                    "ts": round(time.time(), 3),
+                    "session": sid_short,
+                    "action_type": action_type,
+                    "valid": is_valid,
+                    "reward": round(float(reward), 4),
+                    "gain_or_loss": gain,
+                }
+            )
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -133,6 +147,7 @@ class IncidentMetrics:
                     "avg_reward": round(
                         sum(self.step_rewards) / len(self.step_rewards), 4
                     ) if self.step_rewards else 0.0,
+                    "reward_stream": list(self.reward_stream),
                 },
                 "api": {"request_counts": dict(self.request_counts), "latency_stats": latency},
             }

@@ -17,6 +17,53 @@ logging.basicConfig(
 )
 logger = logging.getLogger("incident_ops_ui")
 
+
+def _format_reward_timeline(entries: list | None) -> str:
+    """Human-readable episode reward history (gains vs losses)."""
+    if not entries:
+        return "// No reward events yet. Run /step after /reset to record gains and losses."
+    lines: list[str] = []
+    for e in entries:
+        r = float(e.get("reward", 0.0))
+        kind = "GAIN" if r >= 0 else "LOSS"
+        ok = "valid" if e.get("action_was_valid", True) else "INVALID"
+        lines.append(
+            f"step {e.get('step_number')} | {e.get('action_type')} | {ok} | "
+            f"{kind} {r:+.4f} | cumulative {float(e.get('total_reward_so_far', 0.0)):.4f}"
+        )
+    return "\n".join(lines)
+
+
+def _observation_context_json(obs: dict[str, Any] | None) -> str:
+    o = obs or {}
+    subset = {
+        "recent_logs": o.get("recent_logs", []),
+        "current_metrics": o.get("current_metrics", []),
+        "runbook_steps": o.get("runbook_steps", []),
+        "last_action_result": o.get("last_action_result"),
+        "last_action_was_valid": o.get("last_action_was_valid"),
+        "postmortem_prompt": o.get("postmortem_prompt"),
+        "actions_remaining": o.get("actions_remaining"),
+    }
+    return json.dumps(subset, indent=2)
+
+
+def _format_server_reward_stream(snapshot: dict) -> str:
+    rows = (snapshot.get("steps") or {}).get("reward_stream") or []
+    if not rows:
+        return "// No server-wide reward events yet. Steps appear here after each /step API call."
+    lines: list[str] = []
+    for row in rows[-50:]:
+        ts = row.get("ts", 0)
+        gl = row.get("gain_or_loss", "gain")
+        v = "OK" if row.get("valid") else "INV"
+        lines.append(
+            f"t={ts} | {row.get('session')} | {row.get('action_type')} | {v} | "
+            f"{gl} {float(row.get('reward', 0)):+.4f}"
+        )
+    return "\n".join(lines)
+
+
 # Scrollable workbench: tab body max-height + Code/Textbox line caps (Gradio scrolls inside editors).
 # Passed to ``gr.mount_gradio_app(..., css=...)`` (Gradio 6: avoid ``css`` on ``Blocks()``).
 WORKBENCH_SCROLL_CSS = """
@@ -93,7 +140,7 @@ def _request(
         return response.json()
 
 
-def run_reset(task_id: int, scenario_id: str, seed: int | None) -> tuple[str, str, str]:
+def run_reset(task_id: int, scenario_id: str, seed: int | None) -> tuple[str, str, str, str, str]:
     body: dict[str, Any] = {"task_id": int(task_id)}
     if scenario_id.strip():
         body["scenario_id"] = scenario_id.strip()
@@ -102,10 +149,13 @@ def run_reset(task_id: int, scenario_id: str, seed: int | None) -> tuple[str, st
     logger.info("Reset requested task_id=%s scenario_id=%s seed=%s", task_id, scenario_id.strip(), seed)
     try:
         payload = _request("POST", "/reset", body)
+        obs = payload.get("observation") or {}
         return (
             payload["session_id"],
-            json.dumps(payload["observation"], indent=2),
+            json.dumps(obs, indent=2),
             json.dumps({"status": "reset_complete"}, indent=2),
+            _format_reward_timeline(obs.get("reward_history")),
+            _observation_context_json(obs if isinstance(obs, dict) else None),
         )
     except httpx.HTTPStatusError as exc:
         detail = ""
@@ -114,19 +164,19 @@ def run_reset(task_id: int, scenario_id: str, seed: int | None) -> tuple[str, st
         except Exception:
             detail = exc.response.text
         logger.warning("Reset HTTP status error status=%s detail=%s", exc.response.status_code, detail)
-        return "", "", f"Reset failed ({exc.response.status_code}): {detail}"
+        return "", "", f"Reset failed ({exc.response.status_code}): {detail}", "// Reset failed.", "{}"
     except httpx.RequestError as exc:
         logger.error("Reset request/network error: %s", repr(exc))
-        return "", "", f"Reset request/network error: {exc}"
+        return "", "", f"Reset request/network error: {exc}", "// Reset failed.", "{}"
 
 
-def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
+def run_step(session_id: str, action_json: str) -> tuple[str, str, str, str, str]:
     if not session_id.strip():
-        return "", "", "Missing session_id. Run reset first."
+        return "", "", "Missing session_id. Run reset first.", "// No session.", "{}"
     try:
         action_payload = json.loads(action_json)
     except json.JSONDecodeError as exc:
-        return "", "", f"Invalid action JSON: {exc}"
+        return "", "", f"Invalid action JSON: {exc}", "// Invalid JSON.", "{}"
     logger.info("Step requested session_id=%s", session_id.strip())
     try:
         payload = _request(
@@ -135,8 +185,9 @@ def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
             {"action": action_payload},
             headers={"X-Session-ID": session_id.strip()},
         )
+        obs = payload.get("observation") or {}
         return (
-            json.dumps(payload["observation"], indent=2),
+            json.dumps(obs, indent=2),
             json.dumps(
                 {
                     "reward": payload["reward"],
@@ -147,6 +198,8 @@ def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
                 indent=2,
             ),
             "step_complete",
+            _format_reward_timeline(obs.get("reward_history")),
+            _observation_context_json(obs if isinstance(obs, dict) else None),
         )
     except httpx.HTTPStatusError as exc:
         detail = ""
@@ -166,27 +219,42 @@ def run_step(session_id: str, action_json: str) -> tuple[str, str, str]:
                 "Step validation failed (422). Check `Action JSON` matches task schema "
                 f"and required fields.\nServer detail: {detail}"
             )
-        return "", "", status
+        return "", "", status, "// Step failed.", "{}"
     except httpx.RequestError as exc:
         logger.error("Step request error session_id=%s error=%s", session_id.strip(), repr(exc))
-        return "", "", f"Step request/network error: {exc}"
+        return "", "", f"Step request/network error: {exc}", "// Network error.", "{}"
 
 
-def fetch_state(session_id: str) -> str:
+def fetch_state(session_id: str) -> tuple[str, str, str]:
     if not session_id.strip():
-        return "Missing session_id."
+        return "Missing session_id.", "// Missing session_id.", "{}"
     try:
         payload = _request("GET", "/state", headers={"X-Session-ID": session_id.strip()})
-        return json.dumps(payload, indent=2)
+        excerpt = payload.get("observation_excerpt") or {}
+        return (
+            json.dumps(payload, indent=2),
+            _format_reward_timeline(payload.get("reward_history")),
+            json.dumps(excerpt, indent=2),
+        )
     except httpx.HTTPStatusError as exc:
         detail = ""
         try:
             detail = exc.response.json().get("detail", "")
         except Exception:
             detail = exc.response.text
-        return f"State request failed ({exc.response.status_code}): {detail}"
+        return f"State request failed ({exc.response.status_code}): {detail}", "// State failed.", "{}"
     except httpx.RequestError as exc:
-        return f"State request/network error: {exc}"
+        return f"State request/network error: {exc}", "// Network error.", "{}"
+
+
+def fetch_reward_stream() -> str:
+    try:
+        data = _request("GET", "/metrics")
+        return _format_server_reward_stream(data)
+    except httpx.HTTPStatusError as exc:
+        return f"// reward_stream error: {exc.response.status_code}"
+    except httpx.RequestError as exc:
+        return f"// reward_stream network: {exc}"
 
 
 def fetch_tasks() -> str:
@@ -372,10 +440,28 @@ def build_gradio_app() -> gr.Blocks:
                 step_status = gr.Textbox(label="Step Status", **_STATUS_BOX)
                 state_btn = gr.Button("Fetch State")
                 state_box = gr.Code(label="Current State", language="json", **_CODE_PANEL)
+                reward_timeline = gr.Code(
+                    label="Episode reward timeline (GAIN / LOSS per step)",
+                    language="markdown",
+                    **_CODE_PANEL,
+                )
+                obs_context = gr.Code(
+                    label="Observation context (logs · metrics · runbook · meta)",
+                    language="json",
+                    **_CODE_PANEL,
+                )
 
-                reset_btn.click(run_reset, [task_id, scenario_id, seed], [session_id, observation_box, reset_status])
-                step_btn.click(run_step, [session_id, action_json], [step_observation, step_meta, step_status])
-                state_btn.click(fetch_state, [session_id], [state_box])
+                reset_btn.click(
+                    run_reset,
+                    [task_id, scenario_id, seed],
+                    [session_id, observation_box, reset_status, reward_timeline, obs_context],
+                )
+                step_btn.click(
+                    run_step,
+                    [session_id, action_json],
+                    [step_observation, step_meta, step_status, reward_timeline, obs_context],
+                )
+                state_btn.click(fetch_state, [session_id], [state_box, reward_timeline, obs_context])
 
         with gr.Tab("Tasks + Grader"):
             with gr.Column(elem_classes=["workbench-tab-scroll"]):
@@ -390,6 +476,12 @@ def build_gradio_app() -> gr.Blocks:
             with gr.Column(elem_classes=["workbench-tab-scroll"]):
                 metrics_btn = gr.Button("Refresh Metrics")
                 metrics_box = gr.Code(label="/metrics snapshot", language="json", **_CODE_PANEL)
+                reward_stream_btn = gr.Button("Refresh server-wide reward stream")
+                reward_stream_box = gr.Code(
+                    label="Live reward stream (all sessions; from /metrics steps.reward_stream)",
+                    language="markdown",
+                    **_CODE_PANEL,
+                )
                 ws_info = gr.Textbox(
                     label="Live Stream Endpoint",
                     value=metrics_stream_info(),
@@ -397,7 +489,9 @@ def build_gradio_app() -> gr.Blocks:
                     max_lines=4,
                 )
                 metrics_btn.click(fetch_metrics, None, [metrics_box])
+                reward_stream_btn.click(fetch_reward_stream, None, [reward_stream_box])
                 gr.Timer(2.0).tick(fetch_metrics, None, [metrics_box])
+                gr.Timer(2.0).tick(fetch_reward_stream, None, [reward_stream_box])
 
         with gr.Tab("Baseline"):
             with gr.Column(elem_classes=["workbench-tab-scroll"]):

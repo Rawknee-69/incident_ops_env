@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -106,6 +106,16 @@ class RunbookStep(BaseModel):
     )
 
 
+class RewardHistoryEntry(BaseModel):
+    """One row in the episode reward timeline (after each /step)."""
+
+    step_number: int = Field(description="Environment step_number after the transition.")
+    reward: float = Field(description="Reward for this transition (can be negative).")
+    total_reward_so_far: float = Field(description="Cumulative reward for the episode.")
+    action_was_valid: bool = Field(description="Whether the action was accepted by the environment.")
+    action_type: str = Field(description="Action type submitted.")
+
+
 class IncidentObservation(BaseModel):
     task_id: int = Field(description="Active task id: 1, 2, or 3.")
     step_number: int = Field(description="Current episode step number.")
@@ -137,6 +147,10 @@ class IncidentObservation(BaseModel):
         description="Prompt shown when postmortem is required.",
     )
     actions_remaining: int = Field(description="Remaining action budget for episode.")
+    reward_history: list[RewardHistoryEntry] = Field(
+        default_factory=list,
+        description="Chronological reward events for this episode (gain/loss per step).",
+    )
 
 
 class IncidentState(BaseModel):
@@ -149,6 +163,14 @@ class IncidentState(BaseModel):
     is_done: bool = Field(description="Whether episode is complete.")
     done_reason: Optional[str] = Field(description="Episode completion reason.")
     reward_breakdown: dict = Field(description="Aggregated reward components.")
+    reward_history: list[RewardHistoryEntry] = Field(
+        default_factory=list,
+        description="Same timeline as observations; included in /state for tooling.",
+    )
+    observation_excerpt: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Mirrors key observation fields (logs, metrics, runbook, meta) for /state clients.",
+    )
 
 
 class IncidentReward(BaseModel):

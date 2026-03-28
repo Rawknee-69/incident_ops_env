@@ -9,8 +9,8 @@ WORKDIR /app/env
 COPY pyproject.toml .
 COPY uv.lock .
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -f uv.lock ]; then \
+# Plain RUN (no BuildKit cache mounts): some HF Space builders hang or omit logs with --mount=type=cache.
+RUN if [ -f uv.lock ]; then \
       uv sync --frozen --no-install-project --no-editable; \
     else \
       uv sync --no-install-project --no-editable; \
@@ -18,8 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY . .
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-editable
+RUN uv sync --no-editable
 
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
 ENV PATH="/app/env/.venv/bin:$PATH"

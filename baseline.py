@@ -172,6 +172,44 @@ async def _try_step_with_retry(
     return None
 
 
+async def _drain_until_done(
+    client: httpx.AsyncClient,
+    prefix: str,
+    session_id: str,
+    observation: dict,
+    task_id: int,
+    done: bool,
+    steps: int,
+    max_steps_budget: int,
+) -> tuple[dict, bool, int]:
+    """If the main loop exited without ``done``, run scripted actions until terminal or budget.
+
+    ``/grader`` returns 409 unless ``env.is_done``; LLM loops can exit early on ``max_steps`` or
+    failed steps while the episode is still open.
+    """
+    if done:
+        return observation, done, steps
+    extra = 0
+    cap = max(40, max_steps_budget, 25)
+    obs = observation
+    while not done and extra < cap:
+        action = _fallback_action_from_observation(obs)
+        step_data = await _try_step_with_retry(
+            client, prefix, session_id, action, obs, task_id, steps + extra
+        )
+        if step_data is None:
+            logger.warning(
+                "Baseline drain: step failed task_id=%s extra=%s; stopping drain",
+                task_id,
+                extra,
+            )
+            break
+        obs = step_data["observation"]
+        done = step_data["done"]
+        extra += 1
+    return obs, done, steps + extra
+
+
 def _get_safe_fallback_action(task_id: int, observation: dict, attempt: int) -> dict:
     """Return a guaranteed-valid action for each task when other actions fail."""
     if task_id == 1:
@@ -272,6 +310,34 @@ async def _run_task_with_client(task_id: int, seed: int, provider: LLMProvider, 
         observation = step_data["observation"]
         done = step_data["done"]
         steps += 1
+
+    observation, done, steps = await _drain_until_done(
+        client, prefix, session_id, observation, task_id, done, steps, max_steps
+    )
+
+    if not done:
+        scenario_id = "unknown"
+        try:
+            st_resp = await client.get(f"{prefix}/state", headers={"X-Session-ID": session_id})
+            if st_resp.is_success:
+                scenario_id = st_resp.json().get("scenario_id", "unknown")
+        except Exception:
+            pass
+        logger.error(
+            "Baseline task_id=%s episode still open after drain (steps=%s); skipping grader",
+            task_id,
+            steps,
+        )
+        return {
+            "task_id": task_id,
+            "score": 0.0,
+            "steps_used": steps,
+            "scenario_id": scenario_id,
+            "seed": seed,
+            "invalid_output_count": invalid_output_count,
+            "grader_skipped": True,
+            "detail": "Episode did not reach terminal state; /grader requires is_done.",
+        }
 
     grader_resp = await client.post(f"{prefix}/grader", json={"session_id": session_id})
     grader_resp.raise_for_status()

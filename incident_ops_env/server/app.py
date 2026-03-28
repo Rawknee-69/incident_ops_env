@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from pydantic import BaseModel, Field
 
 import baseline as baseline_runner
-from incident_ops_env.models import IncidentAction, IncidentObservation
+from incident_ops_env.models import IncidentAction, IncidentObservation, IncidentState
 from incident_ops_env.server.metrics import metrics, metrics_hub
 from incident_ops_env.server.scenario_loader import (
     list_scenarios_for_task,
@@ -96,6 +96,311 @@ async def root() -> HTMLResponse:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "healthy", "environment": "incident_ops_env", "version": "1.0.0"}
+
+
+@app.get("/metadata")
+async def metadata() -> dict:
+    """OpenEnv required endpoint. Returns environment name and description."""
+    return {
+        "name": "incident_ops_env",
+        "description": (
+            "Production incident response environment for RL agent training. "
+            "Simulates real SRE on-call workflows: alert triage, root cause analysis, "
+            "and multi-step runbook execution with escalation and postmortem writing."
+        ),
+        "version": "1.0.0",
+        "author": "Kyoiske",
+        "tasks": 3,
+        "difficulty_range": ["easy", "medium", "hard"],
+        "max_steps_by_task": {"1": 5, "2": 15, "3": 25},
+    }
+
+
+@app.get("/schema")
+async def schema() -> dict:
+    """OpenEnv required endpoint. Returns JSON schemas for action, observation, and state."""
+    return {
+        "action": IncidentAction.model_json_schema(),
+        "observation": IncidentObservation.model_json_schema(),
+        "state": IncidentState.model_json_schema(),
+    }
+
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request) -> dict:
+    """
+    OpenEnv required endpoint. MCP JSON-RPC 2.0 interface.
+    Exposes all 9 environment action types as MCP tools.
+    Supports tools/list method. Returns JSON-RPC 2.0 format.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    method = body.get("method", "")
+    request_id = body.get("id", 1)
+
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "classify_alert",
+                        "description": (
+                            "Task 1 - Alert Triage. Classify the real incident from a noisy alert dump. "
+                            "Identify the severity level, the affected service, and the failure pattern type. "
+                            "This is the primary action for Task 1 and ends the episode when called."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "severity": {
+                                    "type": "string",
+                                    "enum": ["P1", "P2", "P3"],
+                                    "description": "P1=critical outage, P2=major degradation, P3=minor issue.",
+                                },
+                                "service_name": {
+                                    "type": "string",
+                                    "description": "Name of the service the agent identifies as affected.",
+                                },
+                                "pattern_type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "database_overload",
+                                        "memory_leak",
+                                        "network_partition",
+                                        "deployment_regression",
+                                        "traffic_spike",
+                                        "disk_full",
+                                        "authentication_failure",
+                                        "unknown",
+                                    ],
+                                    "description": "The failure pattern this incident matches.",
+                                },
+                            },
+                            "required": ["severity", "service_name", "pattern_type"],
+                        },
+                    },
+                    {
+                        "name": "filter_logs",
+                        "description": (
+                            "Task 2/3 - Root Cause Analysis. Query the log database for a specific service. "
+                            "Returns up to 20 matching log lines. Use this to find error messages and trace "
+                            "the root cause. Relevant log queries earn +0.05 reward. "
+                            "Irrelevant queries (after 3+) earn -0.02 penalty."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "log_service": {
+                                    "type": "string",
+                                    "description": (
+                                        "Service whose logs to query (e.g. 'checkout-service', "
+                                        "'payment-service', 'inventory-service')."
+                                    ),
+                                },
+                                "log_level": {
+                                    "type": "string",
+                                    "enum": ["ERROR", "WARN", "INFO", "DEBUG"],
+                                    "description": "Optional: filter to only this log level. Omit to return all levels.",
+                                },
+                                "log_keyword": {
+                                    "type": "string",
+                                    "description": (
+                                        "Optional: keyword to search in log messages "
+                                        "(e.g. 'NullPointerException', 'timeout', 'No space left')."
+                                    ),
+                                },
+                            },
+                            "required": ["log_service"],
+                        },
+                    },
+                    {
+                        "name": "get_metric",
+                        "description": (
+                            "Task 2/3 - Root Cause Analysis. Fetch metric time-series data for a specific service. "
+                            "Returns metric snapshots. Use this to confirm anomalies in CPU, memory, error rate, "
+                            "disk usage, or latency. service_name is required - cannot be omitted. "
+                            "Querying a relevant metric earns +0.05 reward."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "service_name": {
+                                    "type": "string",
+                                    "description": (
+                                        "Name of the service to query metrics for. REQUIRED - "
+                                        "must be specified explicitly."
+                                    ),
+                                },
+                                "metric_name": {
+                                    "type": "string",
+                                    "description": (
+                                        "Metric to retrieve. Common values: 'cpu_percent', 'memory_mb', "
+                                        "'error_rate', 'disk_percent', 'latency_ms', 'request_count'."
+                                    ),
+                                },
+                                "metric_window_minutes": {
+                                    "type": "integer",
+                                    "description": "Optional: how many minutes of history to return. Defaults to 60 if omitted.",
+                                },
+                            },
+                            "required": ["service_name", "metric_name"],
+                        },
+                    },
+                    {
+                        "name": "identify_service",
+                        "description": (
+                            "Task 2/3. Declare which service you believe is the root cause of the incident. "
+                            "Call this after gathering evidence via filter_logs and get_metric. "
+                            "Correct identification earns +0.15 reward and signals your diagnosis to the environment."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "service_name": {
+                                    "type": "string",
+                                    "description": (
+                                        "The service you have identified as the root cause "
+                                        "(e.g. 'checkout-service')."
+                                    ),
+                                },
+                            },
+                            "required": ["service_name"],
+                        },
+                    },
+                    {
+                        "name": "propose_mitigation",
+                        "description": (
+                            "Task 2. Propose the remediation command to fix the incident. "
+                            "This ends the episode - use it only when confident. "
+                            "Correct command earns +0.20 reward. "
+                            "Incorrect command on the 2nd+ attempt earns -0.10 penalty. "
+                            "Example commands: 'kubectl rollout undo deployment/checkout-service', "
+                            "'kubectl exec -n prod inventory-0 -- rm -rf /var/log/archive/*'."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": (
+                                        "The exact remediation command. Must match the scenario's "
+                                        "correct_mitigation_command to earn full reward."
+                                    ),
+                                },
+                            },
+                            "required": ["command"],
+                        },
+                    },
+                    {
+                        "name": "execute_runbook_step",
+                        "description": (
+                            "Task 3 - Full Incident Playbook. Execute a step from the active runbook. "
+                            "Steps must be completed in order - each step unlocks the next. "
+                            "If a step is marked should_fail, the environment will return a failure message - "
+                            "respond by calling escalate, not by retrying. "
+                            "Correct execution earns +0.10 reward. Wrong command earns -0.05."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "runbook_step_id": {
+                                    "type": "string",
+                                    "description": (
+                                        "ID of the runbook step to execute (e.g. 'step_1', 'step_2'). "
+                                        "Must match an available step in runbook_steps."
+                                    ),
+                                },
+                                "command": {
+                                    "type": "string",
+                                    "description": (
+                                        "The command for this runbook step. Must exactly match "
+                                        "the step's correct_command to succeed."
+                                    ),
+                                },
+                            },
+                            "required": ["runbook_step_id", "command"],
+                        },
+                    },
+                    {
+                        "name": "escalate",
+                        "description": (
+                            "Task 3. Escalate the incident to a specialist team. "
+                            "Use this when a runbook step has failed (should_fail=true) and you cannot resolve it yourself. "
+                            "Escalating to the correct team earns +0.30 reward. "
+                            "Unnecessary escalation (when you should fix it) earns -0.10 to -0.15 penalty. "
+                            "Retrying a failed step instead of escalating earns -0.05 per retry."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "escalation_team": {
+                                    "type": "string",
+                                    "enum": ["database", "networking", "security", "platform", "management"],
+                                    "description": (
+                                        "The specialist team to escalate to. Must match the expected "
+                                        "team for the failing step."
+                                    ),
+                                },
+                                "escalation_reason": {
+                                    "type": "string",
+                                    "description": "Explanation of why you are escalating. Describe the failed step and what you attempted.",
+                                },
+                            },
+                            "required": ["escalation_team", "escalation_reason"],
+                        },
+                    },
+                    {
+                        "name": "write_postmortem",
+                        "description": (
+                            "Task 3. Write the incident postmortem after all runbook steps are resolved. "
+                            "Only available once all steps are completed or escalated - the postmortem_prompt "
+                            "field in the observation will become non-null when ready. "
+                            "Scored on keyword coverage: must mention affected services, root cause, "
+                            "mitigation steps taken, and prevention recommendations. "
+                            "Full keyword coverage earns +0.30 reward. Partial coverage earns +0.05 to +0.29."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "postmortem_text": {
+                                    "type": "string",
+                                    "description": (
+                                        "Full postmortem text. Must cover: (1) what happened and root cause, "
+                                        "(2) which services were affected, (3) what mitigation steps were taken, "
+                                        "(4) how to prevent recurrence. Scored on keyword match against scenario ground truth."
+                                    ),
+                                },
+                            },
+                            "required": ["postmortem_text"],
+                        },
+                    },
+                    {
+                        "name": "no_op",
+                        "description": (
+                            "Take no action this step. Earns -0.03 reward (penalty). "
+                            "Only use if genuinely stuck - idle steps waste your action budget "
+                            "and reduce the chance of a time bonus."
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        },
+                    },
+                ]
+            },
+        }
+
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": -32601, "message": f"Method not found: {method}"},
+    }
 
 
 @app.get("/tasks")

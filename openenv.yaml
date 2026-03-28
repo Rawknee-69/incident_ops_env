@@ -4,7 +4,7 @@ description: >
   Production incident response environment for RL agent training.
   Simulates real SRE on-call workflows: alert triage, root cause analysis,
   and multi-step runbook execution with escalation and postmortem writing.
-author: "openenv-contrib"
+author: "Kyoiske"
 license: MIT
 
 tasks:

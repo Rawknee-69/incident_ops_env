@@ -29,6 +29,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 incident-ops-env = "incident_ops_env.server.entrypoint:main"
+server = "incident_ops_env.server.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["incident_ops_env"]

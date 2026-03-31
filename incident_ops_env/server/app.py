@@ -39,7 +39,7 @@ PATTERN_TYPE_VALUES = [
 
 
 class ResetRequest(BaseModel):
-    task_id: Literal[1, 2, 3]
+    task_id: Literal[1, 2, 3] = 1
     scenario_id: str | None = None
     seed: int | None = None
 

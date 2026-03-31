@@ -453,8 +453,16 @@ async def tasks() -> dict:
     }
 
 
-@app.post("/reset")
-async def reset(payload: ResetRequest, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> ResetResponse:
+@app.api_route("/reset", methods=["GET", "POST"])
+async def reset(request: Request, x_session_id: str | None = Header(default=None, alias="X-Session-ID")) -> ResetResponse:
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    else:
+        body = {}
+    payload = ResetRequest(**body)
     session_id, env = session_manager.create_or_get_session(x_session_id)
     try:
         obs = env.reset(task_id=payload.task_id, scenario_id=payload.scenario_id, seed=payload.seed)

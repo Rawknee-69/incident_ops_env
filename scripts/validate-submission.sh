@@ -74,7 +74,6 @@ if ! REPO_DIR="$(cd "$REPO_DIR" 2>/dev/null && pwd)"; then
   exit 1
 fi
 PING_URL="${PING_URL%/}"
-export PING_URL
 PASS=0
 
 log()  { printf "[%s] %b\n" "$(date -u +%H:%M:%S)" "$*"; }
@@ -86,6 +85,18 @@ stop_at() {
   printf "${RED}${BOLD}Validation stopped at %s.${NC} Fix the above before continuing.\n" "$1"
   exit 1
 }
+
+# Auto-convert HF page URL to direct Space runtime URL.
+# https://huggingface.co/spaces/Owner/space_name -> https://owner-space-name.hf.space
+if echo "$PING_URL" | grep -qiE '^https?://huggingface\.co/spaces/'; then
+  _hf_path="${PING_URL#*huggingface.co/spaces/}"
+  _hf_owner="$(echo "${_hf_path%%/*}" | tr '[:upper:]' '[:lower:]')"
+  _hf_space="$(echo "${_hf_path#*/}" | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g')"
+  PING_URL="https://${_hf_owner}-${_hf_space}.hf.space"
+  log "${YELLOW}Converted HF page URL to runtime URL:${NC} $PING_URL"
+fi
+
+export PING_URL
 
 printf "\n"
 printf "${BOLD}========================================${NC}\n"

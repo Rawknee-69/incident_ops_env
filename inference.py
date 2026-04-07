@@ -323,26 +323,27 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
         raise ValueError(f"task_id must be one of 1, 2, 3; got {task_id}")
 
     client = httpx.Client(timeout=TIMEOUT)
-
-    reset_resp = client.post(f"{ENV_URL}/reset", json={"task_id": task_id, "seed": seed})
-    reset_resp.raise_for_status()
-    reset_data = reset_resp.json()
-    session_id = reset_data["session_id"]
-    observation = reset_data["observation"]
+    session_id = "unknown"
     score = 0.0
+    steps = 0
+    done = False
     end_emitted = False
 
+    # Emit START immediately so validators always receive structured output.
     emit_start(task_id=task_id, session_id=session_id)
 
-    tasks_resp = client.get(f"{ENV_URL}/tasks")
-    task_info = next(t for t in tasks_resp.json()["tasks"] if t["task_id"] == task_id)
-    max_steps = task_info.get("max_steps", MAX_STEPS)
-
-    history: list[dict[str, str]] = []
-    done = False
-    steps = 0
-
     try:
+        reset_resp = client.post(f"{ENV_URL}/reset", json={"task_id": task_id, "seed": seed})
+        reset_resp.raise_for_status()
+        reset_data = reset_resp.json()
+        session_id = str(reset_data.get("session_id", "unknown"))
+        observation = reset_data["observation"]
+
+        tasks_resp = client.get(f"{ENV_URL}/tasks")
+        task_info = next(t for t in tasks_resp.json()["tasks"] if t["task_id"] == task_id)
+        max_steps = task_info.get("max_steps", MAX_STEPS)
+        history: list[dict[str, str]] = []
+
         while not done and steps < max_steps:
             user_msg = f"Step {steps + 1}/{max_steps}\nObservation:\n{json.dumps(observation, indent=2)}"
             history.append({"role": "user", "content": user_msg})
@@ -376,6 +377,15 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
         emit_end(task_id=task_id, score=score, steps=steps, session_id=session_id)
         end_emitted = True
         return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done, "score": score}
+    except Exception as exc:
+        print(f"Episode failed: {exc}", flush=True)
+        if steps == 0:
+            emit_step(step=1, reward=0.0, done=True, action_type="no_op")
+            steps = 1
+            done = True
+        emit_end(task_id=task_id, score=0.0, steps=steps, session_id=session_id)
+        end_emitted = True
+        return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done, "score": 0.0}
     finally:
         client.close()
         if not end_emitted:

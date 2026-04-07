@@ -233,13 +233,25 @@ def _safe_fallback_after_422(task_id: int, observation: dict[str, Any], attempt:
     return {"action_type": "no_op"}
 
 
+def emit_start(task_id: int, session_id: str) -> None:
+    print(f"[START] task={task_id} session_id={session_id}", flush=True)
+
+
+def emit_step(step: int, reward: float, done: bool, action_type: str) -> None:
+    print(f"[STEP] step={step} reward={reward:.4f} done={done} action={action_type}", flush=True)
+
+
+def emit_end(task_id: int, score: float, steps: int, session_id: str) -> None:
+    print(f"[END] task={task_id} score={score:.4f} steps={steps} session_id={session_id}", flush=True)
+
+
 def _post_step_with_retry(
     client: httpx.Client,
     session_id: str,
     action: dict[str, Any],
     observation: dict[str, Any],
     task_id: int,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     last_action = action
     max_retries = 2
     for attempt in range(max_retries + 1):
@@ -249,7 +261,7 @@ def _post_step_with_retry(
             headers={"X-Session-ID": session_id},
         )
         if response.status_code < 400:
-            return response.json()
+            return response.json(), last_action
         if response.status_code == 422 and attempt < max_retries:
             last_action = _safe_fallback_after_422(task_id, observation, attempt)
             continue
@@ -268,8 +280,10 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
     reset_data = reset_resp.json()
     session_id = reset_data["session_id"]
     observation = reset_data["observation"]
+    score = 0.0
+    end_emitted = False
 
-    print(f"Episode started: task_id={task_id} session_id={session_id}")
+    emit_start(task_id=task_id, session_id=session_id)
 
     tasks_resp = client.get(f"{ENV_URL}/tasks")
     task_info = next(t for t in tasks_resp.json()["tasks"] if t["task_id"] == task_id)
@@ -279,43 +293,44 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
     done = False
     steps = 0
 
-    while not done and steps < max_steps:
-        user_msg = f"Step {steps + 1}/{max_steps}\nObservation:\n{json.dumps(observation, indent=2)}"
-        history.append({"role": "user", "content": user_msg})
+    try:
+        while not done and steps < max_steps:
+            user_msg = f"Step {steps + 1}/{max_steps}\nObservation:\n{json.dumps(observation, indent=2)}"
+            history.append({"role": "user", "content": user_msg})
 
-        try:
-            raw = _chat_with_model(history, SYSTEM_PROMPT)
-        except Exception as exc:
-            print(f"  Gemini request failed: {exc}")
-            raw = ""
+            try:
+                raw = _chat_with_model(history, SYSTEM_PROMPT)
+            except Exception as exc:
+                print(f"Model request failed: {exc}", flush=True)
+                raw = ""
 
-        action = _extract_action(raw)
-        if not action or not action.get("action_type"):
-            print(f"  Step {steps + 1}: invalid model output, using fallback")
-            action = _fallback_action(observation)
-        else:
-            print(f"  Step {steps + 1}: {action.get('action_type')}")
+            action = _extract_action(raw)
+            if not action or not action.get("action_type"):
+                action = _fallback_action(observation)
 
-        history.append({"role": "assistant", "content": raw})
+            history.append({"role": "assistant", "content": raw})
 
-        try:
-            step_data = _post_step_with_retry(client, session_id, action, observation, task_id)
-        except httpx.HTTPStatusError as exc:
-            print(f"  Step failed ({exc.response.status_code}): {exc.response.text[:200]}")
-            raise
+            try:
+                step_data, final_action = _post_step_with_retry(client, session_id, action, observation, task_id)
+            except httpx.HTTPStatusError as exc:
+                print(f"Step failed ({exc.response.status_code}): {exc.response.text[:200]}", flush=True)
+                raise
 
-        observation = step_data["observation"]
-        reward = step_data.get("reward", 0.0)
-        done = step_data.get("done", False)
-        steps += 1
+            observation = step_data["observation"]
+            reward = step_data.get("reward", 0.0)
+            done = step_data.get("done", False)
+            steps += 1
 
-        print(f"    reward={reward:+.4f} done={done}")
-
-    client.close()
-
-    status = "completed" if done else f"stopped at {steps} steps"
-    print(f"Episode {status}: task_id={task_id} steps={steps}")
-    return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done}
+            action_type = str(final_action.get("action_type", "unknown"))
+            emit_step(step=steps, reward=reward, done=done, action_type=action_type)
+        score = float(done)
+        emit_end(task_id=task_id, score=score, steps=steps, session_id=session_id)
+        end_emitted = True
+        return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done, "score": score}
+    finally:
+        client.close()
+        if not end_emitted:
+            emit_end(task_id=task_id, score=score, steps=steps, session_id=session_id)
 
 
 def main() -> None:
@@ -326,15 +341,9 @@ def main() -> None:
 
     results = []
     for tid in task_ids:
-        print(f"\n{'='*60}")
-        print(f"Running task {tid}")
-        print(f"{'='*60}")
         result = run_episode(task_id=tid, seed=seed)
         results.append(result)
-
-    print(f"\n{'='*60}")
-    print("All results:")
-    print(json.dumps(results, indent=2))
+    print(json.dumps(results, indent=2), flush=True)
 
 
 if __name__ == "__main__":

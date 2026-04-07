@@ -131,9 +131,41 @@ def _resolve_openrouter_config() -> dict[str, Any]:
     }
 
 
+def _resolve_proxy_config() -> dict[str, Any]:
+    """Resolve evaluator-injected LiteLLM/OpenAI-compatible proxy settings."""
+    base_url = (os.getenv("API_BASE_URL") or "").strip() or None
+    api_key = (os.getenv("API_KEY") or "").strip() or None
+    model_name = (
+        (os.getenv("MODEL_NAME") or "").strip()
+        or (os.getenv("OPENAI_MODEL") or "").strip()
+        or "gpt-4o-mini"
+    )
+    return {"base_url": base_url, "api_key": api_key, "model_name": model_name}
+
+
 def _chat_with_model(messages: list[dict[str, str]], system_prompt: str) -> str:
     """Route chat to OpenRouter (OpenAI-compatible) or Gemini SDK."""
     global genai, OpenAI
+
+    # Phase-2 validator path: always prefer injected LiteLLM proxy credentials.
+    proxy = _resolve_proxy_config()
+    if proxy["base_url"] and proxy["api_key"]:
+        if OpenAI is None:
+            try:
+                from openai import OpenAI as _OpenAI
+                OpenAI = _OpenAI
+            except ImportError:
+                print("openai package not installed; using fallback.", flush=True)
+                return "{}"
+
+        client = OpenAI(base_url=proxy["base_url"], api_key=proxy["api_key"])
+        completion = client.chat.completions.create(
+            model=proxy["model_name"],
+            messages=[{"role": "system", "content": system_prompt}, *messages],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+        )
+        return completion.choices[0].message.content or "{}"
 
     openrouter = _resolve_openrouter_config()
     if openrouter["enabled"]:
@@ -224,16 +256,25 @@ def _fallback_action(observation: dict[str, Any]) -> dict[str, Any]:
     if task_id == 1:
         alerts = observation.get("active_alerts", [])
         best = alerts[0] if alerts else {}
+        service = str(best.get("service", "unknown"))
+        pattern = "unknown"
+        service_lower = service.lower()
+        if "db" in service_lower or "postgres" in service_lower or "mysql" in service_lower:
+            pattern = "database_overload"
+        elif "api" in service_lower or "gateway" in service_lower:
+            pattern = "traffic_spike"
+        elif "checkout" in service_lower or "payment" in service_lower:
+            pattern = "deployment_regression"
         return {
             "action_type": "classify_alert",
             "severity": best.get("severity", "P2"),
-            "service_name": best.get("service", "unknown"),
-            "pattern_type": "unknown",
+            "service_name": service,
+            "pattern_type": pattern,
         }
     if task_id == 2:
         svc = (observation.get("active_alerts") or [{}])[0].get("service", "checkout-service")
-        step_number = int(observation.get("step_number", 0))
-        if step_number == 0:
+        step_number = int(observation.get("step_number", 0) or 0)
+        if step_number <= 0:
             return {"action_type": "filter_logs", "log_service": svc}
         if step_number == 1:
             return {"action_type": "get_metric", "metric_name": "error_rate", "service_name": svc}
@@ -410,11 +451,32 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
             emit_end(task_id=task_id, score=score, steps=steps, session_id=session_id)
 
 
+def _parse_task_ids(raw_tasks: str) -> list[int]:
+    if not (raw_tasks or "").strip():
+        return []
+
+    parsed: list[int] = []
+    for token in raw_tasks.split(","):
+        value = token.strip()
+        if not value:
+            continue
+        if not value.isdigit():
+            continue
+        tid = int(value)
+        if tid in (1, 2, 3):
+            parsed.append(tid)
+    if not parsed:
+        raise ValueError(
+            f"INFERENCE_TASKS has no valid task ids (supported: 1,2,3). Got: {raw_tasks!r}"
+        )
+    return parsed
+
+
 def main() -> None:
     _load_dotenv_if_present(".env")
 
     raw_tasks = os.getenv("INFERENCE_TASKS", "1,2,3")
-    task_ids = [int(x.strip()) for x in raw_tasks.split(",") if x.strip()]
+    task_ids = _parse_task_ids(raw_tasks)
     if not task_ids:
         # Avoid silent no-op runs when INFERENCE_TASKS is empty.
         task_ids = [1, 2, 3]

@@ -1,12 +1,21 @@
 """
-Inference Script — IncidentOpsEnv (Gemini)
-==========================================
-MANDATORY environment variables:
-    GEMINI_API_KEY   Your Google Gemini API key.
-    GEMINI_MODEL     The model identifier (default: gemini-2.5-flash).
-    ENV_URL          The environment server URL (default: http://localhost:7860).
+Inference Script — IncidentOpsEnv
+=================================
+Provider selection:
+    OPENROUTER_ENABLED=true  -> OpenRouter via OpenAI-compatible client
+    OPENROUTER_ENABLED=false -> Gemini SDK
 
-This script must be named `inference.py` and placed in the root directory.
+Core environment variables:
+    API_BASE_URL   OpenAI-compatible base URL (default: https://openrouter.ai/api/v1).
+    MODEL_NAME     Model name for OpenRouter mode (default: openai/gpt-4o-mini).
+    ENV_URL        Environment server URL (default: http://localhost:7860).
+
+Secrets:
+    OPENROUTER_API_KEY   Required when OPENROUTER_ENABLED=true.
+    GEMINI_API_KEY       Required when OPENROUTER_ENABLED=false.
+
+Optional:
+    LOCAL_IMAGE_NAME     Used only when running from docker image flows.
 """
 
 import json
@@ -19,10 +28,22 @@ import google.generativeai as genai
 import httpx
 from openai import OpenAI
 
-# Optional OpenAI-compatible endpoint support (e.g., HF Router).
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME")
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return default
+
+
+API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "openai/gpt-4o-mini")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 ENV_URL = os.getenv("ENV_URL", "http://localhost:7860").rstrip("/")
@@ -91,8 +112,48 @@ def _resolve_gemini_key() -> str | None:
     )
 
 
+def _resolve_openrouter_config() -> dict[str, Any]:
+    base_url = (os.getenv("API_BASE_URL") or "https://openrouter.ai/api/v1").strip()
+    model_name = (os.getenv("MODEL_NAME") or "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
+    api_key = (os.getenv("OPENROUTER_API_KEY") or "").strip() or None
+    referer = (os.getenv("OPENROUTER_HTTP_REFERER") or "").strip() or None
+    title = (os.getenv("OPENROUTER_TITLE") or "").strip() or None
+
+    return {
+        "enabled": _env_bool("OPENROUTER_ENABLED", default=False),
+        "base_url": base_url,
+        "model_name": model_name,
+        "api_key": api_key,
+        "referer": referer,
+        "title": title,
+    }
+
+
 def _chat_with_model(messages: list[dict[str, str]], system_prompt: str) -> str:
-    """Route chat to Gemini SDK or OpenAI-compatible API (HF Router)."""
+    """Route chat to OpenRouter (OpenAI-compatible) or Gemini SDK."""
+    openrouter = _resolve_openrouter_config()
+    if openrouter["enabled"]:
+        if not openrouter["api_key"]:
+            raise EnvironmentError(
+                "OPENROUTER_ENABLED=true requires OPENROUTER_API_KEY."
+            )
+
+        client = OpenAI(base_url=openrouter["base_url"], api_key=openrouter["api_key"])
+        extra_headers: dict[str, str] = {}
+        if openrouter["referer"]:
+            extra_headers["HTTP-Referer"] = openrouter["referer"]
+        if openrouter["title"]:
+            extra_headers["X-OpenRouter-Title"] = openrouter["title"]
+
+        completion = client.chat.completions.create(
+            model=openrouter["model_name"],
+            messages=[{"role": "system", "content": system_prompt}, *messages],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            extra_headers=extra_headers or None,
+        )
+        return completion.choices[0].message.content or "{}"
+
     gemini_api_key = _resolve_gemini_key()
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
@@ -108,19 +169,10 @@ def _chat_with_model(messages: list[dict[str, str]], system_prompt: str) -> str:
         )
         return response.text or "{}"
 
-    if HF_TOKEN and MODEL_NAME:
-        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "system", "content": system_prompt}, *messages],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-        )
-        return completion.choices[0].message.content or "{}"
-
     raise EnvironmentError(
-        "Missing model credentials. Set one of: "
-        "(GEMINI_API_KEY/GOOGLE_API_KEY) or (HF_TOKEN + MODEL_NAME [+ API_BASE_URL])."
+        "Missing Gemini credentials. Set one of: "
+        "GEMINI_API_KEY, GOOGLE_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY. "
+        "Or set OPENROUTER_ENABLED=true with OPENROUTER_API_KEY."
     )
 
 

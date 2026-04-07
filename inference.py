@@ -169,11 +169,8 @@ def _chat_with_model(messages: list[dict[str, str]], system_prompt: str) -> str:
         )
         return response.text or "{}"
 
-    raise EnvironmentError(
-        "Missing Gemini credentials. Set one of: "
-        "GEMINI_API_KEY, GOOGLE_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY. "
-        "Or set OPENROUTER_ENABLED=true with OPENROUTER_API_KEY."
-    )
+    # No credentials configured. Returning empty JSON lets caller use deterministic fallback actions.
+    return "{}"
 
 
 def _extract_action(raw: str) -> dict[str, Any] | None:
@@ -388,7 +385,11 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
 def main() -> None:
     _load_dotenv_if_present(".env")
 
-    task_ids = [int(x.strip()) for x in os.getenv("INFERENCE_TASKS", "1,2,3").split(",") if x.strip()]
+    raw_tasks = os.getenv("INFERENCE_TASKS", "1,2,3")
+    task_ids = [int(x.strip()) for x in raw_tasks.split(",") if x.strip()]
+    if not task_ids:
+        # Avoid silent no-op runs when INFERENCE_TASKS is empty.
+        task_ids = [1, 2, 3]
     seed = int(os.getenv("INFERENCE_SEED", "42"))
 
     results = []

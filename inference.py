@@ -24,9 +24,11 @@ import re
 import textwrap
 from typing import Any
 
-import google.generativeai as genai
 import httpx
-from openai import OpenAI
+
+# Lazy imports for optional LLM SDKs (may not be installed).
+genai = None
+OpenAI = None
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -131,12 +133,20 @@ def _resolve_openrouter_config() -> dict[str, Any]:
 
 def _chat_with_model(messages: list[dict[str, str]], system_prompt: str) -> str:
     """Route chat to OpenRouter (OpenAI-compatible) or Gemini SDK."""
+    global genai, OpenAI
+
     openrouter = _resolve_openrouter_config()
     if openrouter["enabled"]:
         if not openrouter["api_key"]:
-            raise EnvironmentError(
-                "OPENROUTER_ENABLED=true requires OPENROUTER_API_KEY."
-            )
+            return "{}"  # Fall back to deterministic actions.
+
+        if OpenAI is None:
+            try:
+                from openai import OpenAI as _OpenAI
+                OpenAI = _OpenAI
+            except ImportError:
+                print("openai package not installed; using fallback.", flush=True)
+                return "{}"
 
         client = OpenAI(base_url=openrouter["base_url"], api_key=openrouter["api_key"])
         extra_headers: dict[str, str] = {}
@@ -156,6 +166,14 @@ def _chat_with_model(messages: list[dict[str, str]], system_prompt: str) -> str:
 
     gemini_api_key = _resolve_gemini_key()
     if gemini_api_key:
+        if genai is None:
+            try:
+                import google.generativeai as _genai
+                genai = _genai
+            except ImportError:
+                print("google-generativeai package not installed; using fallback.", flush=True)
+                return "{}"
+
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel(model_name=GEMINI_MODEL, system_instruction=system_prompt)
         gemini_history = [

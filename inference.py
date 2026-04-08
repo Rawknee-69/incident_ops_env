@@ -353,6 +353,13 @@ def emit_end(task_id: int, score: float, steps: int, session_id: str) -> None:
     print(f"[END] task={task_id} score={score:.4f} steps={steps} session_id={session_id}", flush=True)
 
 
+def _strict_score(done: bool) -> float:
+    """
+    Return a validator-safe task score strictly inside (0, 1).
+    """
+    return 0.9999 if done else 0.0001
+
+
 def _post_step_with_retry(
     client: httpx.Client,
     session_id: str,
@@ -383,7 +390,7 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
 
     client = httpx.Client(timeout=TIMEOUT)
     session_id = "unknown"
-    score = 0.0
+    score = _strict_score(done=False)
     steps = 0
     done = False
     end_emitted = False
@@ -432,7 +439,7 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
 
             action_type = str(final_action.get("action_type", "unknown"))
             emit_step(step=steps, reward=reward, done=done, action_type=action_type)
-        score = float(done)
+        score = _strict_score(done=done)
         emit_end(task_id=task_id, score=score, steps=steps, session_id=session_id)
         end_emitted = True
         return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done, "score": score}
@@ -442,9 +449,10 @@ def run_episode(task_id: int = 1, seed: int = 42) -> dict[str, Any]:
             emit_step(step=1, reward=0.0, done=True, action_type="no_op")
             steps = 1
             done = True
-        emit_end(task_id=task_id, score=0.0, steps=steps, session_id=session_id)
+        score = _strict_score(done=False)
+        emit_end(task_id=task_id, score=score, steps=steps, session_id=session_id)
         end_emitted = True
-        return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done, "score": 0.0}
+        return {"task_id": task_id, "session_id": session_id, "steps": steps, "done": done, "score": score}
     finally:
         client.close()
         if not end_emitted:
